@@ -1,0 +1,19 @@
+# secrets / config
+.env
+*.env
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# logs
+logs/*.log
+logs/*.jsonl
+
+# os
+.DS_Store

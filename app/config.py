@@ -1,0 +1,54 @@
+"""環境変数(.env)から設定を読み込む。"""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+
+from dotenv import load_dotenv
+
+load_dotenv()  # プロジェクト直下の .env を読む
+
+VALID_MODES = {"DRY_RUN", "TESTNET", "LIVE"}
+
+
+def _get(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+
+def _split_symbols(raw: str) -> list[str]:
+    return [s.strip() for s in raw.split(",") if s.strip()]
+
+
+@dataclass
+class Settings:
+    trading_mode: str = field(default_factory=lambda: _get("TRADING_MODE", "DRY_RUN").upper())
+    webhook_secret: str = field(default_factory=lambda: _get("WEBHOOK_SECRET"))
+    discord_webhook_url: str = field(default_factory=lambda: _get("DISCORD_WEBHOOK_URL"))
+
+    exchange_id: str = field(default_factory=lambda: _get("EXCHANGE_ID", "bybit"))
+    exchange_api_key: str = field(default_factory=lambda: _get("EXCHANGE_API_KEY"))
+    exchange_api_secret: str = field(default_factory=lambda: _get("EXCHANGE_API_SECRET"))
+
+    order_quote_amount: float = field(default_factory=lambda: float(_get("ORDER_QUOTE_AMOUNT", "1000")))
+    max_open_positions: int = field(default_factory=lambda: int(_get("MAX_OPEN_POSITIONS", "1")))
+    order_cooldown_sec: int = field(default_factory=lambda: int(_get("ORDER_COOLDOWN_SEC", "60")))
+    allowed_symbols: list[str] = field(default_factory=lambda: _split_symbols(_get("ALLOWED_SYMBOLS", "")))
+
+    host: str = field(default_factory=lambda: _get("HOST", "0.0.0.0"))
+    port: int = field(default_factory=lambda: int(_get("PORT", "8000")))
+
+    def validate(self) -> list[str]:
+        """起動時の設定チェック。問題点のリストを返す（空なら健全）。"""
+        problems: list[str] = []
+        if self.trading_mode not in VALID_MODES:
+            problems.append(f"TRADING_MODE は {VALID_MODES} のいずれか。現在: {self.trading_mode!r}")
+        if not self.webhook_secret or self.webhook_secret == "change-me-to-a-long-random-string":
+            problems.append("WEBHOOK_SECRET が未設定/初期値のままです。長いランダム文字列に変更してください。")
+        if self.trading_mode in {"TESTNET", "LIVE"} and (not self.exchange_api_key or not self.exchange_api_secret):
+            problems.append(f"{self.trading_mode} には EXCHANGE_API_KEY / EXCHANGE_API_SECRET が必要です。")
+        if not self.allowed_symbols:
+            problems.append("ALLOWED_SYMBOLS が空です。少なくとも1つ許可シンボルを設定してください。")
+        return problems
+
+
+settings = Settings()

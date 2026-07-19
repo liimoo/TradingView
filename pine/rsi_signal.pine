@@ -1,0 +1,49 @@
+//@version=5
+// RSIの売られすぎ/買われすぎでWebhookアラートを出すインジケータ。
+// TradingViewのチャートに追加 → アラート作成 → 通知先にWebhook URL(中継サーバの /webhook)を指定。
+// アラート条件は「Any alert() function call」を選ぶと、下の alert() がそのまま飛びます。
+indicator("RSI Signal Webhook", overlay=false)
+
+// ===== 入力 =====
+rsiLength   = input.int(14,  "RSI期間",     minval=1)
+oversold    = input.int(30,  "売られすぎ(買いサイン)", minval=1, maxval=50)
+overbought  = input.int(70,  "買われすぎ(売りサイン)", minval=50, maxval=99)
+webhookSecret = input.string("change-me-to-a-long-random-string", "共有シークレット(.envのWEBHOOK_SECRETと一致させる)")
+
+// ===== 計算 =====
+rsi = ta.rsi(close, rsiLength)
+
+// クロスで判定（売られすぎ圏に入った/買われすぎ圏に入った瞬間）
+buySignal  = ta.crossunder(rsi, oversold)   // RSIが下限を下抜け → 買い
+sellSignal = ta.crossover(rsi, overbought)  // RSIが上限を上抜け → 売り
+
+// リペイント回避：足が確定したバーのみ発火
+buyConfirmed  = buySignal  and barstate.isconfirmed
+sellConfirmed = sellSignal and barstate.isconfirmed
+
+// ===== 表示 =====
+plot(rsi, "RSI", color=color.new(color.blue, 0))
+hline(overbought, "買われすぎ", color=color.red)
+hline(oversold,   "売られすぎ", color=color.green)
+plotshape(buyConfirmed,  title="買い", style=shape.triangleup,   location=location.bottom, color=color.green, size=size.small)
+plotshape(sellConfirmed, title="売り", style=shape.triangledown, location=location.top,    color=color.red,   size=size.small)
+
+// ===== Webhook用JSONメッセージ =====
+// syminfo.tickerid 例: "BINANCE:BTCUSDT"。中継サーバのALLOWED_SYMBOLSに合わせて調整可。
+makeMsg(action) =>
+    '{"secret":"' + webhookSecret + '"' +
+     ',"action":"' + action + '"' +
+     ',"symbol":"' + syminfo.ticker + '"' +
+     ',"tf":"' + timeframe.period + '"' +
+     ',"price":"' + str.tostring(close) + '"' +
+     ',"rsi":"' + str.tostring(rsi, "#.##") + '"' +
+     ',"bar_time":"' + str.tostring(time) + '"}'
+
+if buyConfirmed
+    alert(makeMsg("buy"), alert.freq_once_per_bar_close)
+if sellConfirmed
+    alert(makeMsg("sell"), alert.freq_once_per_bar_close)
+
+// 個別のアラート条件を使いたい場合は下も利用可（アラート作成時に条件を選択）:
+alertcondition(buyConfirmed,  title="RSI 買いサイン", message="RSI oversold buy")
+alertcondition(sellConfirmed, title="RSI 売りサイン", message="RSI overbought sell")

@@ -1,0 +1,35 @@
+# Render.com Blueprint（クラウド常設デプロイ設定）
+# Render の「New +」→「Blueprint」でこのリポジトリを選ぶと、この設定で web サービスが作られる。
+# 秘密情報(sync:false)は Render のダッシュボードで入力する（GitHubには載せない）。
+services:
+  - type: web
+    name: tradingview-rsi-relay
+    runtime: python
+    plan: free # 無料で開始（15分無操作でスリープ→初回復帰に約1分）。本番稼働時は starter($7/月) に変更で常時起動
+    region: singapore # 日本から近いリージョン
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.7
+      - key: TRADING_MODE
+        value: DRY_RUN # 最初は通知のみ。検証後 TESTNET → LIVE へ
+      - key: WEBHOOK_SECRET
+        sync: false # ダッシュボードで入力（秘密）
+      - key: DISCORD_WEBHOOK_URL
+        sync: false # ダッシュボードで入力（秘密）
+      - key: ALLOWED_SYMBOLS
+        value: BTC/JPY,ETH/JPY,XRP/JPY,SOL/JPY,DOGE/JPY,BTCUSDT,ETHUSDT,XRPUSDT,SOLUSDT,DOGEUSDT
+      - key: ORDER_QUOTE_AMOUNT
+        value: "1000"
+      - key: MAX_OPEN_POSITIONS
+        value: "1"
+      - key: ORDER_COOLDOWN_SEC
+        value: "60"
+      - key: EXCHANGE_ID
+        value: bybit # 検証:bybit / 本番:bitbank
+      - key: EXCHANGE_API_KEY
+        sync: false
+      - key: EXCHANGE_API_SECRET
+        sync: false
