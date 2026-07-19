@@ -6,7 +6,8 @@ import os
 
 os.environ.setdefault("TRADING_MODE", "DRY_RUN")
 os.environ.setdefault("WEBHOOK_SECRET", "test-secret")
-os.environ.setdefault("ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT,BTC/JPY")
+os.environ.setdefault("ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT,BTC/JPY,XRP/JPY")
+os.environ.setdefault("SYMBOL_MAP", "XRPUSDT=XRP/JPY")
 os.environ.setdefault("ORDER_COOLDOWN_SEC", "0")
 os.environ.setdefault("MAX_OPEN_POSITIONS", "1")
 
@@ -70,6 +71,14 @@ def test_buy_then_sell_closes_position():
     sell = client.post("/webhook", content=_payload(action="sell", bar_time="c2"))
     assert sell.json()["status"] == "dry_run"
     assert risk_manager.get_position("BTCUSDT") is None  # 決済されて建玉が消える
+
+
+def test_symbol_mapping_buy():
+    # TVの "XRPUSDT" が bitbankの "XRP/JPY" に変換されて建玉が立つ
+    r = client.post("/webhook", content=_payload(symbol="XRPUSDT", bar_time="map1"))
+    assert r.json()["status"] == "dry_run"
+    assert risk_manager.get_position("XRP/JPY") is not None
+    assert risk_manager.get_position("XRPUSDT") is None
 
 
 def test_sell_without_position_skipped():

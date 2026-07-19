@@ -90,40 +90,42 @@ async def webhook(request: Request) -> JSONResponse:
         return JSONResponse(status_code=200, content={"status": "duplicate_ignored"})
     _recent_keys.append(key)
 
-    logger.info("シグナル受信: %s %s price=%s rsi=%s tf=%s",
-                signal.action, signal.symbol, signal.price, signal.rsi, signal.tf)
+    # TradingViewの銘柄表記(例 XRPUSDT)を取引所ペア(例 XRP/JPY)へ変換
+    symbol = settings.resolve_symbol(signal.symbol)
+    logger.info("シグナル受信: %s %s→%s price=%s rsi=%s tf=%s",
+                signal.action, signal.symbol, symbol, signal.price, signal.rsi, signal.tf)
 
     # 3) リスク判定
-    decision = risk_manager.check(signal.symbol, signal.action)
+    decision = risk_manager.check(symbol, signal.action)
     if not decision.allowed:
-        msg = f"⏸️ 発注見送り [{decision.reason}] {signal.action} {signal.symbol} (rsi={signal.rsi})"
+        msg = f"⏸️ 発注見送り [{decision.reason}] {signal.action} {symbol} (rsi={signal.rsi})"
         logger.info(msg)
         await notify(msg)
         return JSONResponse(status_code=200, content={"status": "skipped", "reason": decision.reason})
 
     # 4) 発注（DRY_RUN/TESTNET/LIVE はモードで分岐）
-    risk_manager.mark_ordered(signal.symbol, signal.action)  # クールダウン起点
+    risk_manager.mark_ordered(symbol, signal.action)  # クールダウン起点
     try:
         if signal.action == "buy":
-            result = broker.buy(signal.symbol, settings.order_quote_amount, signal.price)
+            result = broker.buy(symbol, settings.order_quote_amount, signal.price)
         else:  # sell = 保有分の決済
-            held = risk_manager.get_position(signal.symbol)
-            result = broker.sell(signal.symbol, held, signal.price)
+            held = risk_manager.get_position(symbol)
+            result = broker.sell(symbol, held, signal.price)
     except Exception as exc:  # noqa: BLE001
         logger.exception("発注エラー")
-        await notify(f"❌ 発注エラー: {signal.action} {signal.symbol}: {exc}")
+        await notify(f"❌ 発注エラー: {signal.action} {symbol}: {exc}")
         return JSONResponse(status_code=502, content={"status": "order_error", "detail": str(exc)})
 
     # 建玉トラッキング更新
     if result.get("status") in {"ok", "dry_run"}:
         if signal.action == "buy":
-            risk_manager.open_position(signal.symbol, result.get("filled_base"))
+            risk_manager.open_position(symbol, result.get("filled_base"))
         else:
-            risk_manager.close_position(signal.symbol)
+            risk_manager.close_position(symbol)
 
     emoji = "🟢" if signal.action == "buy" else "🔴"
     await notify(
-        f"{emoji} {signal.action.upper()} {signal.symbol} "
+        f"{emoji} {signal.action.upper()} {symbol} "
         f"rsi={signal.rsi} price={signal.price}\n{result.get('summary')}"
     )
     return JSONResponse(status_code=200, content={"status": result.get("status"), "summary": result.get("summary")})

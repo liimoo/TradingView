@@ -20,7 +20,9 @@ services:
       - key: DISCORD_WEBHOOK_URL
         sync: false # ダッシュボードで入力（秘密）
       - key: ALLOWED_SYMBOLS
-        value: BTC/JPY,ETH/JPY,XRP/JPY,SOL/JPY,DOGE/JPY,BTCUSDT,ETHUSDT,XRPUSDT,SOLUSDT,DOGEUSDT
+        value: XRP/JPY,BTC/JPY,ETH/JPY,SOL/JPY,DOGE/JPY # 変換後(取引所ペア)の表記で許可
+      - key: SYMBOL_MAP
+        value: XRPUSDT=XRP/JPY,BTCUSDT=BTC/JPY,ETHUSDT=ETH/JPY,SOLUSDT=SOL/JPY,DOGEUSDT=DOGE/JPY
       - key: ORDER_QUOTE_AMOUNT
         value: "1000"
       - key: MAX_OPEN_POSITIONS

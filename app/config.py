@@ -19,6 +19,18 @@ def _split_symbols(raw: str) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
+def _parse_symbol_map(raw: str) -> dict[str, str]:
+    """"XRPUSDT=XRP/JPY,BTCUSDT=BTC/JPY" 形式を dict に。"""
+    out: dict[str, str] = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair or "=" not in pair:
+            continue
+        k, v = pair.split("=", 1)
+        out[k.strip().upper()] = v.strip().upper()
+    return out
+
+
 @dataclass
 class Settings:
     trading_mode: str = field(default_factory=lambda: _get("TRADING_MODE", "DRY_RUN").upper())
@@ -33,6 +45,7 @@ class Settings:
     max_open_positions: int = field(default_factory=lambda: int(_get("MAX_OPEN_POSITIONS", "1")))
     order_cooldown_sec: int = field(default_factory=lambda: int(_get("ORDER_COOLDOWN_SEC", "60")))
     allowed_symbols: list[str] = field(default_factory=lambda: _split_symbols(_get("ALLOWED_SYMBOLS", "")))
+    symbol_map: dict = field(default_factory=lambda: _parse_symbol_map(_get("SYMBOL_MAP", "")))
 
     host: str = field(default_factory=lambda: _get("HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(_get("PORT", "8000")))
@@ -49,6 +62,10 @@ class Settings:
         if not self.allowed_symbols:
             problems.append("ALLOWED_SYMBOLS が空です。少なくとも1つ許可シンボルを設定してください。")
         return problems
+
+    def resolve_symbol(self, raw: str) -> str:
+        """TVの銘柄表記を取引所ペアへ変換（未登録ならそのまま大文字化して返す）。"""
+        return self.symbol_map.get(raw.upper(), raw.upper())
 
 
 settings = Settings()
