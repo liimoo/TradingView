@@ -13,24 +13,25 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.7
+      # 以下の運用系はダッシュボードで管理する(sync:false)。コードpushで値が戻らないようにするため。
       - key: TRADING_MODE
-        value: DRY_RUN # 最初は通知のみ。検証後 TESTNET → LIVE へ
+        sync: false # DRY_RUN → 準備完了後にダッシュボードで LIVE へ
+      - key: ALLOWED_SYMBOLS
+        sync: false # 本番はダッシュボードで XRP/JPY に絞る
+      - key: ORDER_QUOTE_AMOUNT
+        sync: false # 本番はダッシュボードで 500 など
+      - key: EXCHANGE_ID
+        sync: false # 本番は bitbank
       - key: WEBHOOK_SECRET
         sync: false # ダッシュボードで入力（秘密）
       - key: DISCORD_WEBHOOK_URL
         sync: false # ダッシュボードで入力（秘密）
-      - key: ALLOWED_SYMBOLS
-        value: XRP/JPY,BTC/JPY,ETH/JPY,SOL/JPY,DOGE/JPY # 変換後(取引所ペア)の表記で許可
       - key: SYMBOL_MAP
         value: XRPUSDT=XRP/JPY,BTCUSDT=BTC/JPY,ETHUSDT=ETH/JPY,SOLUSDT=SOL/JPY,DOGEUSDT=DOGE/JPY
-      - key: ORDER_QUOTE_AMOUNT
-        value: "1000"
       - key: MAX_OPEN_POSITIONS
         value: "1"
       - key: ORDER_COOLDOWN_SEC
         value: "60"
-      - key: EXCHANGE_ID
-        value: bybit # 検証:bybit / 本番:bitbank
       - key: EXCHANGE_API_KEY
         sync: false
       - key: EXCHANGE_API_SECRET
