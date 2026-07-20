@@ -82,6 +82,8 @@ async def health() -> dict:
         "day_pnl": round(risk_manager.day_pnl, 2),
         "day_entries": risk_manager.day_entries,
         "daily_block": risk_manager.daily_block_reason(),
+        "allowed_symbols": settings.allowed_symbols,
+        "max_open_positions": settings.max_open_positions,
     }
 
 
