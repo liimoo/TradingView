@@ -25,6 +25,13 @@ def should_stop(entry_price: float, current_price: float, stop_pct: float) -> bo
     return current_price <= entry_price * (1 - stop_pct)
 
 
+def should_take_profit(entry_price: float, current_price: float, tp_pct: float) -> bool:
+    """取得単価から tp_pct 以上上昇していれば True。"""
+    if not entry_price or entry_price <= 0 or not tp_pct or tp_pct <= 0:
+        return False
+    return current_price >= entry_price * (1 + tp_pct)
+
+
 async def reconstruct_positions() -> None:
     """起動時、取引所残高から建玉を復元する（LIVE/TESTNETのみ）。"""
     if settings.trading_mode not in {"LIVE", "TESTNET"} or not broker.has_exchange:
@@ -59,15 +66,26 @@ async def reconstruct_positions() -> None:
         await notify(f"♻️ 起動時に建玉を復元: {sym} {qty} @ entry≈{entry}")
 
 
-async def stop_loss_loop() -> None:
-    """一定間隔で保有建玉の価格をチェックし、損切り条件で成行決済する。"""
+def _exit_reason(entry_price: float, px: float):
+    """(reason, emoji, label) を返す。決済不要なら None。損切り優先。"""
+    if should_stop(entry_price, px, settings.stop_loss_pct):
+        return "stop_loss", "🛑", f"損切り(-{settings.stop_loss_pct*100:.1f}%)"
+    if should_take_profit(entry_price, px, settings.take_profit_pct):
+        return "take_profit", "💰", f"利確(+{settings.take_profit_pct*100:.1f}%)"
+    return None
+
+
+async def exit_monitor_loop() -> None:
+    """一定間隔で保有建玉の価格をチェックし、損切り/利確条件で成行決済する。"""
     if settings.trading_mode not in {"LIVE", "TESTNET"} or not broker.has_exchange:
-        logger.info("損切り監視は無効（DRY_RUN/取引所なし）")
+        logger.info("決済監視は無効（DRY_RUN/取引所なし）")
         return
-    if not settings.stop_loss_pct or settings.stop_loss_pct <= 0:
-        logger.info("損切り無効（STOP_LOSS_PCT=0）")
+    sl, tp = settings.stop_loss_pct, settings.take_profit_pct
+    if (not sl or sl <= 0) and (not tp or tp <= 0):
+        logger.info("損切り/利確とも無効（STOP_LOSS_PCT=TAKE_PROFIT_PCT=0）")
         return
-    logger.info("損切り監視 開始: %.1f%% / %ds間隔", settings.stop_loss_pct * 100, settings.monitor_interval_sec)
+    logger.info("決済監視 開始: 損切り%.1f%% / 利確%.1f%% / %ds間隔",
+                sl * 100, tp * 100, settings.monitor_interval_sec)
     while True:
         try:
             for sym, pos in list(risk_manager._positions.items()):
@@ -77,9 +95,11 @@ async def stop_loss_loop() -> None:
                     px = await asyncio.to_thread(broker.ticker, sym)
                 except Exception:  # noqa: BLE001
                     continue
-                if not should_stop(pos.entry_price, px, settings.stop_loss_pct):
+                decision = _exit_reason(pos.entry_price, px)
+                if decision is None:
                     continue
-                logger.warning("損切り発動: %s entry=%s now=%s", sym, pos.entry_price, px)
+                reason, emoji, label = decision
+                logger.warning("%s発動: %s entry=%s now=%s", label, sym, pos.entry_price, px)
                 try:
                     res = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px)
                     if pos.entry_price:
@@ -92,18 +112,16 @@ async def stop_loss_loop() -> None:
                             "symbol": sym,
                             "filled_base": res.get("filled_base"),
                             "price": px,
-                            "reason": "stop_loss",
+                            "reason": reason,
                             "entry_price": pos.entry_price,
                             "order_id": (res.get("order") or {}).get("id"),
                             "status": res.get("status"),
                         }
                     )
-                    await notify(
-                        f"🛑 損切り決済: {sym} @ {px}（取得 {pos.entry_price}、-{settings.stop_loss_pct*100:.1f}%以上下落）\n{res.get('summary')}"
-                    )
+                    await notify(f"{emoji} {label}決済: {sym} @ {px}（取得 {pos.entry_price}）\n{res.get('summary')}")
                 except Exception as exc:  # noqa: BLE001
-                    logger.exception("損切り発注エラー")
-                    await notify(f"❌ 損切り発注エラー: {sym}: {exc}")
+                    logger.exception("決済発注エラー")
+                    await notify(f"❌ 決済発注エラー: {sym}: {exc}")
         except Exception as exc:  # noqa: BLE001
             logger.warning("監視ループ例外: %s", exc)
         await asyncio.sleep(settings.monitor_interval_sec)

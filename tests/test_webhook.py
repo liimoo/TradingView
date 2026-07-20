@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from datetime import datetime  # noqa: E402
 
 from app.main import app  # noqa: E402
-from app.monitor import should_stop  # noqa: E402
+from app.monitor import should_stop, should_take_profit  # noqa: E402
 from app.risk import JST, risk_manager, within_trading_hours  # noqa: E402
 
 client = TestClient(app)
@@ -84,6 +84,13 @@ def test_should_stop():
     assert should_stop(100, 96, 0.05) is False  # -4% → まだ
     assert should_stop(100, 50, 0) is False     # 0=無効
     assert should_stop(0, 50, 0.05) is False     # 取得単価不明
+
+
+def test_should_take_profit():
+    assert should_take_profit(100, 106, 0.05) is True   # +6% → 利確
+    assert should_take_profit(100, 104, 0.05) is False  # +4% → まだ
+    assert should_take_profit(100, 200, 0) is False     # 0=無効
+    assert should_take_profit(0, 200, 0.05) is False     # 取得単価不明
 
 
 def test_within_trading_hours():

@@ -34,6 +34,8 @@ services:
         value: "60"
       - key: STOP_LOSS_PCT
         value: "0.05" # 取得単価から5%下落で自動損切り（ダッシュボードで調整可）
+      - key: TAKE_PROFIT_PCT
+        value: "0.05" # 取得単価から5%上昇で自動利確（ダッシュボードで調整可）
       - key: MONITOR_INTERVAL_SEC
         value: "60"
       - key: MAX_DAILY_LOSS_JPY

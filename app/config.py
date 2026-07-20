@@ -46,6 +46,8 @@ class Settings:
     order_cooldown_sec: int = field(default_factory=lambda: int(_get("ORDER_COOLDOWN_SEC", "60")))
     # 損切り: 取得単価から この割合 下落したら自動で成行決済（0=無効）。例 0.05 = 5%
     stop_loss_pct: float = field(default_factory=lambda: float(_get("STOP_LOSS_PCT", "0")))
+    # 利確: 取得単価から この割合 上昇したら自動で成行決済（0=無効）。例 0.05 = 5%
+    take_profit_pct: float = field(default_factory=lambda: float(_get("TAKE_PROFIT_PCT", "0")))
     # 価格監視ループの間隔（秒）
     monitor_interval_sec: int = field(default_factory=lambda: int(_get("MONITOR_INTERVAL_SEC", "60")))
     # 取引時間帯(JST)。"8-24"で8:00〜24:00のみ新規買い可。空=24時間（制限なし）

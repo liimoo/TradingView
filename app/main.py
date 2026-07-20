@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     )
     # 起動時に建玉を復元 → 損切り監視ループを開始
     await monitor.reconstruct_positions()
-    task = asyncio.create_task(monitor.stop_loss_loop())
+    task = asyncio.create_task(monitor.exit_monitor_loop())
     try:
         yield
     finally:
@@ -75,6 +75,7 @@ async def health() -> dict:
         "open_positions": risk_manager.open_count,
         "positions": {s: {"base": p.base_qty, "entry": p.entry_price} for s, p in risk_manager._positions.items()},
         "stop_loss_pct": settings.stop_loss_pct,
+        "take_profit_pct": settings.take_profit_pct,
         "day_pnl": round(risk_manager.day_pnl, 2),
         "day_entries": risk_manager.day_entries,
         "daily_block": risk_manager.daily_block_reason(),
