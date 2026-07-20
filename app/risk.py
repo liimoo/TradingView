@@ -29,11 +29,18 @@ class RiskDecision:
 
 
 @dataclass
+class Position:
+    base_qty: float
+    entry_price: float
+    opened_ts: float
+
+
+@dataclass
 class RiskManager:
     # (symbol, action) -> 直近発注の epoch 秒（クールダウン用）
     _last_order_ts: dict[tuple[str, str], float] = field(default_factory=dict)
-    # symbol -> 保有base数量（>0 のときエントリー中）
-    _positions: dict[str, float] = field(default_factory=dict)
+    # symbol -> 建玉（保有base数量と取得単価）
+    _positions: dict[str, Position] = field(default_factory=dict)
 
     # ---- キルスイッチ ----
     def is_killed(self) -> bool:
@@ -49,7 +56,7 @@ class RiskManager:
             logger.warning("キルスイッチ OFF：発注を再開します")
 
     # ---- 建玉参照 ----
-    def get_position(self, symbol: str) -> float | None:
+    def get_position(self, symbol: str) -> Position | None:
         return self._positions.get(symbol)
 
     @property
@@ -88,9 +95,11 @@ class RiskManager:
         now = time.time() if now is None else now
         self._last_order_ts[(symbol, action)] = now
 
-    def open_position(self, symbol: str, base_qty: float) -> None:
+    def open_position(self, symbol: str, base_qty: float, entry_price: float = 0.0,
+                      now: float | None = None) -> None:
         if base_qty and base_qty > 0:
-            self._positions[symbol] = base_qty
+            now = time.time() if now is None else now
+            self._positions[symbol] = Position(base_qty=base_qty, entry_price=entry_price or 0.0, opened_ts=now)
 
     def close_position(self, symbol: str) -> None:
         self._positions.pop(symbol, None)

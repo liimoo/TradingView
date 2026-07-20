@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import deque
 from contextlib import asynccontextmanager
@@ -14,7 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ValidationError
 
-from . import journal
+from . import journal, monitor
 from .broker import broker
 from .config import settings
 from .models import Signal
@@ -46,13 +47,20 @@ async def lifespan(app: FastAPI):
     for p in problems:
         logger.warning("設定警告: %s", p)
     logger.info(
-        "起動: mode=%s exchange=%s allowed=%s order_quote=%s",
+        "起動: mode=%s exchange=%s allowed=%s order_quote=%s stop_loss=%s",
         settings.trading_mode,
         settings.exchange_id,
         settings.allowed_symbols,
         settings.order_quote_amount,
+        settings.stop_loss_pct,
     )
-    yield
+    # 起動時に建玉を復元 → 損切り監視ループを開始
+    await monitor.reconstruct_positions()
+    task = asyncio.create_task(monitor.stop_loss_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
 
 
 app = FastAPI(title="TradingView RSI 中継サーバ", lifespan=lifespan)
@@ -65,7 +73,8 @@ async def health() -> dict:
         "mode": settings.trading_mode,
         "killed": risk_manager.is_killed(),
         "open_positions": risk_manager.open_count,
-        "positions": risk_manager._positions,
+        "positions": {s: {"base": p.base_qty, "entry": p.entry_price} for s, p in risk_manager._positions.items()},
+        "stop_loss_pct": settings.stop_loss_pct,
     }
 
 
@@ -74,7 +83,7 @@ async def report(secret: str = "", format: str = "html"):
     """取引記録＆集計。ブラウザで /report?secret=... を開く（URLは他人に共有しない）。"""
     if not verify_secret(secret, settings.webhook_secret):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
-    data = build_report()
+    data = await asyncio.to_thread(build_report)
     if format == "json":
         return JSONResponse(data)
     return HTMLResponse(render_html(data))
@@ -120,10 +129,10 @@ async def webhook(request: Request) -> JSONResponse:
     risk_manager.mark_ordered(symbol, signal.action)  # クールダウン起点
     try:
         if signal.action == "buy":
-            result = broker.buy(symbol, settings.order_quote_amount, signal.price)
+            result = await asyncio.to_thread(broker.buy, symbol, settings.order_quote_amount, signal.price)
         else:  # sell = 保有分の決済
             held = risk_manager.get_position(symbol)
-            result = broker.sell(symbol, held, signal.price)
+            result = await asyncio.to_thread(broker.sell, symbol, held.base_qty, signal.price)
     except Exception as exc:  # noqa: BLE001
         logger.exception("発注エラー")
         await notify(f"❌ 発注エラー: {signal.action} {symbol}: {exc}")
@@ -146,7 +155,8 @@ async def webhook(request: Request) -> JSONResponse:
             }
         )
         if signal.action == "buy":
-            risk_manager.open_position(symbol, result.get("filled_base"))
+            entry_price = result.get("filled_price") or signal.price or 0.0
+            risk_manager.open_position(symbol, result.get("filled_base"), entry_price)
         else:
             risk_manager.close_position(symbol)
 

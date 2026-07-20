@@ -32,6 +32,10 @@ services:
         value: "1"
       - key: ORDER_COOLDOWN_SEC
         value: "60"
+      - key: STOP_LOSS_PCT
+        value: "0.05" # 取得単価から5%下落で自動損切り（ダッシュボードで調整可）
+      - key: MONITOR_INTERVAL_SEC
+        value: "60"
       - key: EXCHANGE_API_KEY
         sync: false
       - key: EXCHANGE_API_SECRET

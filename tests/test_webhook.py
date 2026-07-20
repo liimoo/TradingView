@@ -14,6 +14,7 @@ os.environ.setdefault("MAX_OPEN_POSITIONS", "1")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402
+from app.monitor import should_stop  # noqa: E402
 from app.risk import risk_manager  # noqa: E402
 
 client = TestClient(app)
@@ -64,6 +65,19 @@ def test_buy_creates_position():
     r = client.post("/webhook", content=_payload(bar_time="b1"))
     assert r.json()["status"] == "dry_run"
     assert risk_manager.get_position("BTCUSDT") is not None  # 建玉が立つ
+
+
+def test_buy_records_entry_price():
+    client.post("/webhook", content=_payload(price=1000, bar_time="ep1"))
+    pos = risk_manager.get_position("BTCUSDT")
+    assert pos is not None and pos.entry_price == 1000  # 取得単価を記録
+
+
+def test_should_stop():
+    assert should_stop(100, 94, 0.05) is True   # -6% → 損切り
+    assert should_stop(100, 96, 0.05) is False  # -4% → まだ
+    assert should_stop(100, 50, 0) is False     # 0=無効
+    assert should_stop(0, 50, 0.05) is False     # 取得単価不明
 
 
 def test_buy_then_sell_closes_position():

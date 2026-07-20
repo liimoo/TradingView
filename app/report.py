@@ -31,20 +31,19 @@ def build_report() -> dict:
         "symbols": {},
         "journal": journal.read_trades(50),
     }
-    ex = broker.readonly_exchange()
-    if ex is None:
+    if not broker.has_exchange:
         out["note"] = "取引所へ接続できません（DRY_RUNで鍵未設定など）。独自ログ(journal)のみ表示。"
         return out
 
     try:
-        bal = ex.fetch_balance()
+        bal = broker.balance()
         out["balance"] = {k: v for k, v in bal.get("free", {}).items() if v}
     except Exception as exc:  # noqa: BLE001
         out["balance_error"] = f"{type(exc).__name__}: {exc}"
 
     for sym in settings.allowed_symbols:
         try:
-            trades = ex.fetch_my_trades(sym, limit=200)
+            trades = broker.my_trades(sym, limit=200)
         except Exception as exc:  # noqa: BLE001
             out["symbols"][sym] = {"error": f"{type(exc).__name__}: {exc}"}
             continue
