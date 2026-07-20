@@ -5,7 +5,7 @@ services:
   - type: web
     name: tradingview-rsi-relay
     runtime: python
-    plan: free # 無料で開始（15分無操作でスリープ→初回復帰に約1分）。本番稼働時は starter($7/月) に変更で常時起動
+    plan: starter # 常時起動($7/月)。free だと15分無操作でスリープし監視が止まるため本番は starter 固定
     region: singapore # 日本から近いリージョン
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
