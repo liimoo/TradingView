@@ -49,6 +49,31 @@ class Broker:
         exchange.load_markets()
         return exchange
 
+    def readonly_exchange(self):
+        """集計・残高照会用の取引所インスタンス。
+
+        LIVE/TESTNET なら発注用インスタンスを流用。DRY_RUNでも鍵があれば参照用に構築。
+        鍵が無ければ None。
+        """
+        if self._exchange is not None:
+            return self._exchange
+        if settings.exchange_api_key and settings.exchange_api_secret:
+            try:
+                import ccxt
+
+                ex = getattr(ccxt, settings.exchange_id)(
+                    {
+                        "apiKey": settings.exchange_api_key,
+                        "secret": settings.exchange_api_secret,
+                        "enableRateLimit": True,
+                    }
+                )
+                ex.load_markets()
+                return ex
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("参照用取引所の構築に失敗: %s", exc)
+        return None
+
     def _price_for(self, symbol: str, price: Optional[float]) -> float:
         px = price
         if (px is None or px <= 0) and self._exchange is not None:

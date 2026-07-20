@@ -107,3 +107,19 @@ def test_killswitch_blocks_order():
 def test_health():
     r = client.get("/health")
     assert r.status_code == 200 and r.json()["mode"] == "DRY_RUN"
+
+
+# ---- 取引レポート ----
+def test_report_requires_secret():
+    assert client.get("/report", params={"secret": "wrong"}).status_code == 401
+
+
+def test_report_html_ok():
+    client.post("/webhook", content=_payload(bar_time="rep1"))  # 記録を1件作る
+    r = client.get("/report", params={"secret": "test-secret"})
+    assert r.status_code == 200 and "取引レポート" in r.text
+
+
+def test_report_json_ok():
+    r = client.get("/report", params={"secret": "test-secret", "format": "json"})
+    assert r.status_code == 200 and r.json()["mode"] == "DRY_RUN"

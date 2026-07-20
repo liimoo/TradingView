@@ -11,13 +11,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ValidationError
 
+from . import journal
 from .broker import broker
 from .config import settings
 from .models import Signal
 from .notifier import notify
+from .report import build_report, render_html
 from .risk import risk_manager
 from .security import verify_secret
 
@@ -65,6 +67,17 @@ async def health() -> dict:
         "open_positions": risk_manager.open_count,
         "positions": risk_manager._positions,
     }
+
+
+@app.get("/report")
+async def report(secret: str = "", format: str = "html"):
+    """取引記録＆集計。ブラウザで /report?secret=... を開く（URLは他人に共有しない）。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    data = build_report()
+    if format == "json":
+        return JSONResponse(data)
+    return HTMLResponse(render_html(data))
 
 
 @app.post("/webhook")
@@ -116,8 +129,22 @@ async def webhook(request: Request) -> JSONResponse:
         await notify(f"❌ 発注エラー: {signal.action} {symbol}: {exc}")
         return JSONResponse(status_code=502, content={"status": "order_error", "detail": str(exc)})
 
-    # 建玉トラッキング更新
+    # 建玉トラッキング更新＋取引記録
     if result.get("status") in {"ok", "dry_run"}:
+        order = result.get("order") or {}
+        journal.record_trade(
+            {
+                "mode": settings.trading_mode,
+                "action": signal.action,
+                "symbol": symbol,
+                "quote": settings.order_quote_amount if signal.action == "buy" else None,
+                "filled_base": result.get("filled_base"),
+                "price": signal.price,
+                "rsi": signal.rsi,
+                "order_id": order.get("id"),
+                "status": result.get("status"),
+            }
+        )
         if signal.action == "buy":
             risk_manager.open_position(symbol, result.get("filled_base"))
         else:
