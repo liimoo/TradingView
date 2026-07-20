@@ -73,7 +73,10 @@ async def health() -> dict:
         "mode": settings.trading_mode,
         "killed": risk_manager.is_killed(),
         "open_positions": risk_manager.open_count,
-        "positions": {s: {"base": p.base_qty, "entry": p.entry_price} for s, p in risk_manager._positions.items()},
+        "positions": {
+            s: {"base": p.base_qty, "entry": p.entry_price, "stop": p.stop_order_id}
+            for s, p in risk_manager._positions.items()
+        },
         "stop_loss_pct": settings.stop_loss_pct,
         "take_profit_pct": settings.take_profit_pct,
         "day_pnl": round(risk_manager.day_pnl, 2),
@@ -91,6 +94,28 @@ async def report(secret: str = "", format: str = "html"):
     if format == "json":
         return JSONResponse(data)
     return HTMLResponse(render_html(data))
+
+
+@app.get("/orders")
+async def orders(secret: str = ""):
+    """取引所の未約定注文（逆指値の確認用）。/orders?secret=..."""
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    if not broker.has_exchange:
+        return JSONResponse({"note": "取引所未接続"})
+    out = {}
+    for sym in settings.allowed_symbols:
+        try:
+            oo = await asyncio.to_thread(broker.open_orders, sym)
+            out[sym] = [
+                {"id": o.get("id"), "type": o.get("type"), "side": o.get("side"),
+                 "amount": o.get("amount"), "trigger": o.get("triggerPrice") or o.get("stopPrice"),
+                 "price": o.get("price"), "status": o.get("status")}
+                for o in oo
+            ]
+        except Exception as exc:  # noqa: BLE001
+            out[sym] = {"error": str(exc)}
+    return JSONResponse(out)
 
 
 @app.post("/webhook")
@@ -136,6 +161,13 @@ async def webhook(request: Request) -> JSONResponse:
             result = await asyncio.to_thread(broker.buy, symbol, settings.order_quote_amount, signal.price)
         else:  # sell = 保有分の決済
             held = risk_manager.get_position(symbol)
+            # 先に逆指値(stop)をキャンセルしてから成行売り（二重売り防止）
+            if held and held.stop_order_id and broker.has_exchange:
+                try:
+                    await asyncio.to_thread(broker.cancel, symbol, held.stop_order_id)
+                    risk_manager.set_stop_order(symbol, None)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("逆指値キャンセル失敗（約定済みの可能性）: %s", exc)
             result = await asyncio.to_thread(broker.sell, symbol, held.base_qty, signal.price)
     except Exception as exc:  # noqa: BLE001
         logger.exception("発注エラー")
@@ -163,6 +195,16 @@ async def webhook(request: Request) -> JSONResponse:
             entry_price = result.get("filled_price") or signal.price or 0.0
             risk_manager.open_position(symbol, result.get("filled_base"), entry_price)
             risk_manager.record_entry()
+            # bitbankに逆指値(stop)を置く（実発注時のみ・失敗時はサーバ監視がフォールバック）
+            if result.get("status") == "ok" and settings.stop_loss_pct > 0 and broker.has_exchange:
+                try:
+                    stop_price = entry_price * (1 - settings.stop_loss_pct)
+                    so = await asyncio.to_thread(broker.place_stop_sell, symbol, result.get("filled_base"), stop_price)
+                    risk_manager.set_stop_order(symbol, so.get("id"))
+                    await notify(f"🔻 逆指値set: {symbol} stop@{stop_price:.4f} id={so.get('id')}")
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("逆指値設定エラー")
+                    await notify(f"⚠️ 逆指値の設定に失敗（サーバ監視でカバー）: {symbol}: {exc}")
         else:
             exit_price = result.get("filled_price") or signal.price or 0.0
             if held and held.entry_price and exit_price:

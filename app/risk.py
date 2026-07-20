@@ -50,6 +50,7 @@ class Position:
     base_qty: float
     entry_price: float
     opened_ts: float
+    stop_order_id: str | None = None  # bitbankに置いた逆指値注文のID
 
 
 @dataclass
@@ -156,10 +157,17 @@ class RiskManager:
         self._last_order_ts[(symbol, action)] = now
 
     def open_position(self, symbol: str, base_qty: float, entry_price: float = 0.0,
-                      now: float | None = None) -> None:
+                      stop_order_id: str | None = None, now: float | None = None) -> None:
         if base_qty and base_qty > 0:
             now = time.time() if now is None else now
-            self._positions[symbol] = Position(base_qty=base_qty, entry_price=entry_price or 0.0, opened_ts=now)
+            self._positions[symbol] = Position(
+                base_qty=base_qty, entry_price=entry_price or 0.0, opened_ts=now, stop_order_id=stop_order_id
+            )
+
+    def set_stop_order(self, symbol: str, order_id: str | None) -> None:
+        p = self._positions.get(symbol)
+        if p:
+            p.stop_order_id = order_id
 
     def close_position(self, symbol: str) -> None:
         self._positions.pop(symbol, None)

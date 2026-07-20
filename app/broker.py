@@ -74,6 +74,28 @@ class Broker:
         with self._lock:
             return self._exchange.fetch_my_trades(symbol, limit=limit)
 
+    # ---------- 逆指値（stop）・注文管理 ----------
+    def place_stop_sell(self, symbol: str, base_amount: float, trigger_price: float) -> dict:
+        """トリガー価格に達したら成行売りする逆指値注文を置く（bitbank: type='stop'）。"""
+        ex = self._exchange
+        with self._lock:
+            trig = float(ex.price_to_precision(symbol, trigger_price))
+            order = ex.create_order(symbol, "stop", "sell", base_amount, None, {"trigger_price": trig})
+        logger.info("逆指値set: %s sell stop trigger=%s id=%s", symbol, trig, order.get("id"))
+        return order
+
+    def cancel(self, symbol: str, order_id) -> None:
+        with self._lock:
+            self._exchange.cancel_order(order_id, symbol)
+
+    def fetch_order(self, symbol: str, order_id) -> dict:
+        with self._lock:
+            return self._exchange.fetch_order(order_id, symbol)
+
+    def open_orders(self, symbol: str) -> list:
+        with self._lock:
+            return self._exchange.fetch_open_orders(symbol)
+
     def market_min_amount(self, symbol: str) -> float:
         try:
             return float(self._exchange.market(symbol).get("limits", {}).get("amount", {}).get("min") or 0)
