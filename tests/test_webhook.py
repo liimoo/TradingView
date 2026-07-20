@@ -93,6 +93,14 @@ def test_should_take_profit():
     assert should_take_profit(0, 200, 0.05) is False     # 取得単価不明
 
 
+def test_sized_quote():
+    from app.config import sized_quote
+
+    assert sized_quote(0.10, 50000, 45000, 500) == 5000   # 総資産の10%
+    assert sized_quote(0.10, 50000, 3000, 500) == 3000    # 現金が10%未満→現金分だけ
+    assert sized_quote(0, 50000, 45000, 500) == 500       # 無効→固定額
+
+
 def test_within_trading_hours():
     assert within_trading_hours("", None) is True  # 空=常に可
     assert within_trading_hours("8-24", datetime(2026, 7, 20, 10, tzinfo=JST)) is True

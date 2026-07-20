@@ -19,7 +19,11 @@ services:
       - key: ALLOWED_SYMBOLS
         sync: false # 本番はダッシュボードで XRP/JPY に絞る
       - key: ORDER_QUOTE_AMOUNT
-        sync: false # 本番はダッシュボードで 500 など
+        sync: false # 固定額（ORDER_SIZE_PCT=0 の時のフォールバック）
+      - key: ORDER_SIZE_PCT
+        value: "0.10" # 発注額=総資産の10%（資金が足りなければある分だけ）。0で固定額
+      - key: MIN_ORDER_JPY
+        value: "100" # これ未満の発注額は資金不足で見送り
       - key: EXCHANGE_ID
         sync: false # 本番は bitbank
       - key: WEBHOOK_SECRET

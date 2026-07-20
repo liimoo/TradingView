@@ -19,6 +19,13 @@ def _split_symbols(raw: str) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
+def sized_quote(pct: float, total_assets: float, free_jpy: float, fixed: float) -> float:
+    """発注額を決める。pct>0なら min(総資産×pct, 使える現金)、そうでなければ固定額。"""
+    if pct and pct > 0:
+        return max(0.0, min(total_assets * pct, free_jpy))
+    return fixed
+
+
 def _parse_symbol_map(raw: str) -> dict[str, str]:
     """"XRPUSDT=XRP/JPY,BTCUSDT=BTC/JPY" 形式を dict に。"""
     out: dict[str, str] = {}
@@ -42,6 +49,10 @@ class Settings:
     exchange_api_secret: str = field(default_factory=lambda: _get("EXCHANGE_API_SECRET"))
 
     order_quote_amount: float = field(default_factory=lambda: float(_get("ORDER_QUOTE_AMOUNT", "1000")))
+    # 発注額を「総資産のこの割合」にする（0=無効で固定額 order_quote_amount を使う）。例 0.10=10%
+    order_size_pct: float = field(default_factory=lambda: float(_get("ORDER_SIZE_PCT", "0")))
+    # これ未満の発注額になる場合は資金不足として見送り（0=チェックなし）
+    min_order_jpy: float = field(default_factory=lambda: float(_get("MIN_ORDER_JPY", "0")))
     max_open_positions: int = field(default_factory=lambda: int(_get("MAX_OPEN_POSITIONS", "1")))
     order_cooldown_sec: int = field(default_factory=lambda: int(_get("ORDER_COOLDOWN_SEC", "60")))
     # 損切り: 取得単価から この割合 下落したら自動で成行決済（0=無効）。例 0.05 = 5%

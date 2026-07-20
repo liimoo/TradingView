@@ -74,6 +74,22 @@ class Broker:
         with self._lock:
             return self._exchange.fetch_my_trades(symbol, limit=limit)
 
+    def portfolio(self) -> tuple[float, float]:
+        """(総資産JPY, 使える現金JPY) を返す。総資産=JPY残高＋保有暗号資産の時価。"""
+        bal = self.balance()
+        total = bal.get("total", {}) or {}
+        free = bal.get("free", {}) or {}
+        free_jpy = float(free.get("JPY") or 0)
+        assets = float(total.get("JPY") or 0)
+        for ccy, amt in total.items():
+            if ccy == "JPY" or not amt or float(amt) <= 0:
+                continue
+            try:
+                assets += float(amt) * self.ticker(f"{ccy}/JPY")
+            except Exception:  # noqa: BLE001
+                pass  # JPY建てが無い/取得失敗の通貨は資産に含めない
+        return assets, free_jpy
+
     # ---------- 逆指値（stop）・注文管理 ----------
     def place_stop_sell(self, symbol: str, base_amount: float, trigger_price: float) -> dict:
         """トリガー価格に達したら成行売りする逆指値注文を置く（bitbank: type='stop'）。"""

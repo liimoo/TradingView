@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 from . import journal, monitor
 from .broker import broker
-from .config import settings
+from .config import settings, sized_quote
 from .models import Signal
 from .notifier import notify
 from .report import build_report, render_html
@@ -79,6 +79,8 @@ async def health() -> dict:
         },
         "stop_loss_pct": settings.stop_loss_pct,
         "take_profit_pct": settings.take_profit_pct,
+        "order_size_pct": settings.order_size_pct,
+        "order_quote_amount": settings.order_quote_amount,
         "day_pnl": round(risk_manager.day_pnl, 2),
         "day_entries": risk_manager.day_entries,
         "daily_block": risk_manager.daily_block_reason(),
@@ -158,9 +160,20 @@ async def webhook(request: Request) -> JSONResponse:
 
     # 4) 発注（DRY_RUN/TESTNET/LIVE はモードで分岐）
     risk_manager.mark_ordered(symbol, signal.action)  # クールダウン起点
+    order_quote = settings.order_quote_amount
     try:
         if signal.action == "buy":
-            result = await asyncio.to_thread(broker.buy, symbol, settings.order_quote_amount, signal.price)
+            # 発注額 = 総資産の一定割合（資金が足りなければある分だけ）。未設定なら固定額
+            if settings.order_size_pct > 0 and broker.has_exchange:
+                try:
+                    assets, free_jpy = await asyncio.to_thread(broker.portfolio)
+                    order_quote = sized_quote(settings.order_size_pct, assets, free_jpy, settings.order_quote_amount)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("資産取得に失敗、固定額にフォールバック: %s", exc)
+            if settings.min_order_jpy > 0 and order_quote < settings.min_order_jpy:
+                await notify(f"⏸️ 資金不足で見送り: {symbol}（発注可能額≈¥{order_quote:.0f} < 最小¥{settings.min_order_jpy:.0f}）")
+                return JSONResponse(status_code=200, content={"status": "skipped", "reason": "insufficient_funds"})
+            result = await asyncio.to_thread(broker.buy, symbol, order_quote, signal.price)
         else:  # sell = 保有分の決済
             held = risk_manager.get_position(symbol)
             # 先に逆指値(stop)をキャンセルしてから成行売り（二重売り防止）
@@ -184,7 +197,7 @@ async def webhook(request: Request) -> JSONResponse:
                 "mode": settings.trading_mode,
                 "action": signal.action,
                 "symbol": symbol,
-                "quote": settings.order_quote_amount if signal.action == "buy" else None,
+                "quote": order_quote if signal.action == "buy" else None,
                 "filled_base": result.get("filled_base"),
                 "price": signal.price,
                 "rsi": signal.rsi,
