@@ -156,6 +156,7 @@ async def webhook(request: Request) -> JSONResponse:
                 "rsi": signal.rsi,
                 "order_id": order.get("id"),
                 "status": result.get("status"),
+                "reason": ("rsi_signal" if signal.action == "sell" else None),
             }
         )
         if signal.action == "buy":

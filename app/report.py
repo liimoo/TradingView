@@ -22,6 +22,73 @@ def _fmt_ts(ms_or_s: float, is_ms: bool) -> str:
         return str(ms_or_s)
 
 
+def _reason_label(reason: str | None) -> str:
+    return {"stop_loss": "損切り", "take_profit": "利確", "rsi_signal": "RSI70", "entry": ""}.get(reason or "", reason or "")
+
+
+def _fmt_hold(sec) -> str:
+    if not sec or sec < 0:
+        return "-"
+    m = int(sec // 60)
+    if m < 60:
+        return f"{m}分"
+    return f"{m // 60}時間{m % 60}分"
+
+
+def _build_roundtrips(trades: list, reason_map: dict) -> tuple[list, list]:
+    """約定を買い→売りでFIFOペアリングし、往復（クローズ済み）と未決済lotを返す。"""
+    trades = sorted(trades, key=lambda t: t.get("timestamp") or 0)
+    lots: list[dict] = []  # 未決済の買いlot（FIFO）
+    rts: list[dict] = []
+    for t in trades:
+        side = t.get("side")
+        amt = float(t.get("amount") or 0)
+        price = float(t.get("price") or 0)
+        ts = t.get("timestamp")
+        if amt <= 0:
+            continue
+        if side == "buy":
+            lots.append({"qty": amt, "price": price, "time": ts})
+        elif side == "sell":
+            remaining = amt
+            reason = reason_map.get(str(t.get("order"))) if t.get("order") is not None else None
+            while remaining > 1e-12 and lots:
+                lot = lots[0]
+                m = min(remaining, lot["qty"])
+                rts.append(
+                    {
+                        "entry_ts": lot["time"],
+                        "entry_price": lot["price"],
+                        "exit_ts": ts,
+                        "exit_price": price,
+                        "qty": m,
+                        "pnl": (price - lot["price"]) * m,
+                        "pnl_pct": ((price / lot["price"] - 1) * 100) if lot["price"] else 0.0,
+                        "hold_sec": ((ts - lot["time"]) / 1000) if (ts and lot["time"]) else None,
+                        "reason": reason,
+                    }
+                )
+                lot["qty"] -= m
+                remaining -= m
+                if lot["qty"] <= 1e-12:
+                    lots.pop(0)
+    return rts, lots
+
+
+def _rt_summary(rts: list) -> dict:
+    n = len(rts)
+    wins = sum(1 for r in rts if r["pnl"] > 0)
+    total = sum(r["pnl"] for r in rts)
+    return {
+        "count": n,
+        "wins": wins,
+        "losses": n - wins,
+        "win_rate": (wins / n * 100) if n else 0.0,
+        "total_pnl": total,
+        "avg_pnl": (total / n) if n else 0.0,
+    }
+
+
 def build_report() -> dict:
     """取引所の約定履歴から銘柄ごとの集計を作る。"""
     out: dict = {
@@ -40,6 +107,13 @@ def build_report() -> dict:
         out["balance"] = {k: v for k, v in bal.get("free", {}).items() if v}
     except Exception as exc:  # noqa: BLE001
         out["balance_error"] = f"{type(exc).__name__}: {exc}"
+
+    # サーバ側ログから 決済order_id -> 理由 を作る（RSI/損切り/利確の注記用）
+    reason_map = {
+        str(e.get("order_id")): e.get("reason")
+        for e in journal.read_trades(500)
+        if e.get("order_id") and e.get("reason")
+    }
 
     for sym in settings.allowed_symbols:
         try:
@@ -85,6 +159,10 @@ def build_report() -> dict:
             "net_base": buy_base - sell_base,  # 未決済の建玉(base)
             "rows": rows[-30:],
         }
+        rts, open_lots = _build_roundtrips(trades, reason_map)
+        out["symbols"][sym]["roundtrips"] = rts[-50:]
+        out["symbols"][sym]["rt_summary"] = _rt_summary(rts)
+        out["symbols"][sym]["open_lots"] = len(open_lots)
     return out
 
 
@@ -138,6 +216,41 @@ def render_html(data: dict) -> str:
         parts.append(f"未決済建玉: <b>{s['net_base']:.4f}</b> base　")
         parts.append(f"純損益(概算): <b class='{cls}'>{_yen(net)}</b>")
         parts.append("</div>")
+
+        # 往復トレード台帳（買い→売りペア）
+        rt = s.get("rt_summary") or {}
+        rts = s.get("roundtrips") or []
+        if rt.get("count"):
+            tot = rt["total_pnl"]
+            tcls = "pos" if tot >= 0 else "neg"
+            parts.append("<div class='card'>")
+            parts.append(
+                f"往復トレード <b>{rt['count']}</b>回　勝ち {rt['wins']} / 負け {rt['losses']}　勝率 <b>{rt['win_rate']:.0f}%</b><br>"
+            )
+            parts.append(f"合計損益 <b class='{tcls}'>{_yen(tot)}</b>　1回平均 {_yen(rt['avg_pnl'])}")
+            if s.get("open_lots"):
+                parts.append(f"　<span class='muted'>(未決済 {s['open_lots']}件)</span>")
+            parts.append("</div>")
+        if rts:
+            parts.append(
+                "<table><tr><th>#</th><th class='l'>エントリー(JST)</th><th>取得単価</th>"
+                "<th class='l'>決済(JST)</th><th>決済単価</th><th>数量</th><th>損益</th><th>損益%</th><th>保有</th><th class='l'>理由</th></tr>"
+            )
+            total = len(rts)
+            for idx, r in enumerate(reversed(rts)):
+                num = total - idx
+                pcls = "pos" if r["pnl"] >= 0 else "neg"
+                parts.append(
+                    f"<tr><td>{num}</td>"
+                    f"<td class='l'>{esc(_fmt_ts(r['entry_ts'], True) if r['entry_ts'] else '')}</td><td>{r['entry_price']}</td>"
+                    f"<td class='l'>{esc(_fmt_ts(r['exit_ts'], True) if r['exit_ts'] else '')}</td><td>{r['exit_price']}</td>"
+                    f"<td>{r['qty']}</td>"
+                    f"<td class='{pcls}'>{_yen(r['pnl'])}</td><td class='{pcls}'>{r['pnl_pct']:+.2f}%</td>"
+                    f"<td>{esc(_fmt_hold(r['hold_sec']))}</td><td class='l'>{esc(_reason_label(r['reason']))}</td></tr>"
+                )
+            parts.append("</table>")
+
+        parts.append("<details><summary class='muted'>個別約定の明細を表示</summary>")
         rows = s.get("rows") or []
         if rows:
             parts.append("<table><tr><th class='l'>時刻(JST)</th><th>売買</th><th>価格</th><th>数量</th><th>金額</th><th>手数料</th></tr>")
@@ -150,6 +263,7 @@ def render_html(data: dict) -> str:
                     f"<td>{r['fee']} {esc(str(r['fee_ccy'] or ''))}</td></tr>"
                 )
             parts.append("</table>")
+        parts.append("</details>")
 
     jr = data.get("journal") or []
     if jr:

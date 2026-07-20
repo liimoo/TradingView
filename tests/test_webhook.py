@@ -164,3 +164,31 @@ def test_report_html_ok():
 def test_report_json_ok():
     r = client.get("/report", params={"secret": "test-secret", "format": "json"})
     assert r.status_code == 200 and r.json()["mode"] == "DRY_RUN"
+
+
+def test_roundtrips_fifo_pnl():
+    from app.report import _build_roundtrips, _rt_summary
+
+    trades = [
+        {"side": "buy", "amount": 2, "price": 100, "timestamp": 1000},
+        {"side": "sell", "amount": 2, "price": 110, "timestamp": 2000, "order": "o1"},
+        {"side": "buy", "amount": 1, "price": 100, "timestamp": 3000},
+        {"side": "sell", "amount": 1, "price": 90, "timestamp": 4000, "order": "o2"},
+    ]
+    rts, open_lots = _build_roundtrips(trades, {"o1": "take_profit"})
+    assert len(rts) == 2 and not open_lots
+    assert abs(rts[0]["pnl"] - 20) < 1e-9        # (110-100)*2
+    assert rts[0]["reason"] == "take_profit"
+    assert abs(rts[1]["pnl"] + 10) < 1e-9        # (90-100)*1 = -10
+    s = _rt_summary(rts)
+    assert s["count"] == 2 and s["wins"] == 1 and s["losses"] == 1
+    assert abs(s["total_pnl"] - 10) < 1e-9
+
+
+def test_roundtrips_open_lot():
+    from app.report import _build_roundtrips
+
+    # 買ったまま未決済なら往復は0件、open_lots=1
+    trades = [{"side": "buy", "amount": 1, "price": 100, "timestamp": 1000}]
+    rts, open_lots = _build_roundtrips(trades, {})
+    assert rts == [] and len(open_lots) == 1
