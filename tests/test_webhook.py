@@ -10,12 +10,15 @@ os.environ.setdefault("ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT,BTC/JPY,XRP/JPY")
 os.environ.setdefault("SYMBOL_MAP", "XRPUSDT=XRP/JPY")
 os.environ.setdefault("ORDER_COOLDOWN_SEC", "0")
 os.environ.setdefault("MAX_OPEN_POSITIONS", "1")
+os.environ.setdefault("MAX_DAILY_LOSS_JPY", "2000")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from datetime import datetime  # noqa: E402
+
 from app.main import app  # noqa: E402
 from app.monitor import should_stop  # noqa: E402
-from app.risk import risk_manager  # noqa: E402
+from app.risk import JST, risk_manager, within_trading_hours  # noqa: E402
 
 client = TestClient(app)
 
@@ -38,6 +41,9 @@ def setup_function(_):
     risk_manager.set_kill(False)
     risk_manager._positions.clear()
     risk_manager._last_order_ts.clear()
+    risk_manager._roll_day()
+    risk_manager._day_pnl = 0.0
+    risk_manager._day_entries = 0
 
 
 # ---- 認証・入力 ----
@@ -78,6 +84,20 @@ def test_should_stop():
     assert should_stop(100, 96, 0.05) is False  # -4% → まだ
     assert should_stop(100, 50, 0) is False     # 0=無効
     assert should_stop(0, 50, 0.05) is False     # 取得単価不明
+
+
+def test_within_trading_hours():
+    assert within_trading_hours("", None) is True  # 空=常に可
+    assert within_trading_hours("8-24", datetime(2026, 7, 20, 10, tzinfo=JST)) is True
+    assert within_trading_hours("8-24", datetime(2026, 7, 20, 3, tzinfo=JST)) is False
+    assert within_trading_hours("22-6", datetime(2026, 7, 20, 23, tzinfo=JST)) is True   # 日跨ぎ
+    assert within_trading_hours("22-6", datetime(2026, 7, 20, 12, tzinfo=JST)) is False
+
+
+def test_daily_loss_blocks_buy():
+    risk_manager.record_close(-2500)  # 本日 -¥2500（上限¥2000超）
+    r = client.post("/webhook", content=_payload(bar_time="dl1"))
+    assert r.status_code == 200 and r.json()["status"] == "skipped"
 
 
 def test_buy_then_sell_closes_position():

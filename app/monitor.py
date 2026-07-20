@@ -82,6 +82,8 @@ async def stop_loss_loop() -> None:
                 logger.warning("損切り発動: %s entry=%s now=%s", sym, pos.entry_price, px)
                 try:
                     res = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px)
+                    if pos.entry_price:
+                        risk_manager.record_close((px - pos.entry_price) * (pos.base_qty or 0))
                     risk_manager.close_position(sym)
                     journal.record_trade(
                         {

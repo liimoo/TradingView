@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import settings
@@ -20,6 +21,22 @@ from .config import settings
 logger = logging.getLogger("risk")
 
 _KILLSWITCH_FILE = Path(__file__).resolve().parent.parent / "logs" / "killswitch.on"
+JST = timezone(timedelta(hours=9))
+
+
+def within_trading_hours(spec: str, now: datetime | None = None) -> bool:
+    """取引時間帯(JST)の判定。spec="8-24" で 8:00<=h<24。空/不正なら常にTrue。"""
+    if not spec or "-" not in spec:
+        return True
+    try:
+        a_s, b_s = spec.split("-", 1)
+        a, b = int(a_s), int(b_s)
+    except ValueError:
+        return True
+    h = (now or datetime.now(JST)).hour
+    if a <= b:
+        return a <= h < b
+    return h >= a or h < b  # 日をまたぐ指定（例 22-6）
 
 
 @dataclass
@@ -41,6 +58,10 @@ class RiskManager:
     _last_order_ts: dict[tuple[str, str], float] = field(default_factory=dict)
     # symbol -> 建玉（保有base数量と取得単価）
     _positions: dict[str, Position] = field(default_factory=dict)
+    # デイリー集計（JST日付ごとにリセット）
+    _day: str = ""
+    _day_pnl: float = 0.0
+    _day_entries: int = 0
 
     # ---- キルスイッチ ----
     def is_killed(self) -> bool:
@@ -63,6 +84,40 @@ class RiskManager:
     def open_count(self) -> int:
         return len(self._positions)
 
+    # ---- デイリー集計（JST日付でリセット） ----
+    def _roll_day(self) -> None:
+        d = datetime.now(JST).strftime("%Y-%m-%d")
+        if d != self._day:
+            self._day = d
+            self._day_pnl = 0.0
+            self._day_entries = 0
+
+    def record_entry(self) -> None:
+        self._roll_day()
+        self._day_entries += 1
+
+    def record_close(self, realized_pnl_jpy: float) -> None:
+        self._roll_day()
+        self._day_pnl += realized_pnl_jpy
+
+    def daily_block_reason(self) -> str | None:
+        self._roll_day()
+        if settings.max_daily_loss_jpy > 0 and self._day_pnl <= -settings.max_daily_loss_jpy:
+            return f"本日の損失上限¥{settings.max_daily_loss_jpy:.0f}に到達（本日損益¥{self._day_pnl:.0f}）"
+        if settings.max_trades_per_day > 0 and self._day_entries >= settings.max_trades_per_day:
+            return f"本日の取引回数上限{settings.max_trades_per_day}回に到達"
+        return None
+
+    @property
+    def day_pnl(self) -> float:
+        self._roll_day()
+        return self._day_pnl
+
+    @property
+    def day_entries(self) -> int:
+        self._roll_day()
+        return self._day_entries
+
     # ---- 発注可否の判定 ----
     def check(self, symbol: str, action: str, now: float | None = None) -> RiskDecision:
         now = time.time() if now is None else now
@@ -79,6 +134,11 @@ class RiskManager:
             return RiskDecision(False, f"クールダウン中（あと{wait:.0f}秒）")
 
         if action == "buy":
+            if not within_trading_hours(settings.trading_hours):
+                return RiskDecision(False, "取引時間外")
+            block = self.daily_block_reason()
+            if block:
+                return RiskDecision(False, block)
             if symbol in self._positions:
                 return RiskDecision(False, "既に建玉あり（重ね買い禁止）")
             if self.open_count >= settings.max_open_positions:

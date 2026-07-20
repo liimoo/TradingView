@@ -36,6 +36,12 @@ services:
         value: "0.05" # 取得単価から5%下落で自動損切り（ダッシュボードで調整可）
       - key: MONITOR_INTERVAL_SEC
         value: "60"
+      - key: MAX_DAILY_LOSS_JPY
+        value: "2000" # 本日の損失がこの額を超えたら当日は新規買い停止（0=無効）
+      - key: TRADING_HOURS
+        value: "" # 空=24時間。例 "8-24" で8:00-24:00 JSTのみ新規買い
+      - key: MAX_TRADES_PER_DAY
+        value: "0" # 1日の新規エントリー上限（0=無効）
       - key: EXCHANGE_API_KEY
         sync: false
       - key: EXCHANGE_API_SECRET

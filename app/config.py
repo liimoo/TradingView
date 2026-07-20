@@ -48,6 +48,12 @@ class Settings:
     stop_loss_pct: float = field(default_factory=lambda: float(_get("STOP_LOSS_PCT", "0")))
     # 価格監視ループの間隔（秒）
     monitor_interval_sec: int = field(default_factory=lambda: int(_get("MONITOR_INTERVAL_SEC", "60")))
+    # 取引時間帯(JST)。"8-24"で8:00〜24:00のみ新規買い可。空=24時間（制限なし）
+    trading_hours: str = field(default_factory=lambda: _get("TRADING_HOURS", ""))
+    # 1日の実現損失がこの額(JPY)を超えたら、その日は新規買いを停止（0=無効）
+    max_daily_loss_jpy: float = field(default_factory=lambda: float(_get("MAX_DAILY_LOSS_JPY", "0")))
+    # 1日の新規エントリー回数の上限（0=無効）
+    max_trades_per_day: int = field(default_factory=lambda: int(_get("MAX_TRADES_PER_DAY", "0")))
     allowed_symbols: list[str] = field(default_factory=lambda: _split_symbols(_get("ALLOWED_SYMBOLS", "")))
     symbol_map: dict = field(default_factory=lambda: _parse_symbol_map(_get("SYMBOL_MAP", "")))
 

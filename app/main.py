@@ -75,6 +75,9 @@ async def health() -> dict:
         "open_positions": risk_manager.open_count,
         "positions": {s: {"base": p.base_qty, "entry": p.entry_price} for s, p in risk_manager._positions.items()},
         "stop_loss_pct": settings.stop_loss_pct,
+        "day_pnl": round(risk_manager.day_pnl, 2),
+        "day_entries": risk_manager.day_entries,
+        "daily_block": risk_manager.daily_block_reason(),
     }
 
 
@@ -157,7 +160,11 @@ async def webhook(request: Request) -> JSONResponse:
         if signal.action == "buy":
             entry_price = result.get("filled_price") or signal.price or 0.0
             risk_manager.open_position(symbol, result.get("filled_base"), entry_price)
+            risk_manager.record_entry()
         else:
+            exit_price = result.get("filled_price") or signal.price or 0.0
+            if held and held.entry_price and exit_price:
+                risk_manager.record_close((exit_price - held.entry_price) * (held.base_qty or 0))
             risk_manager.close_position(symbol)
 
     emoji = "🟢" if signal.action == "buy" else "🔴"
