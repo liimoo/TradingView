@@ -43,7 +43,9 @@ services:
       - key: MONITOR_INTERVAL_SEC
         value: "60"
       - key: MAX_DAILY_LOSS_JPY
-        value: "2000" # 本日の損失がこの額を超えたら当日は新規買い停止（0=無効）
+        value: "0" # 固定額の損失上限（0=無効。下のPCTを使う。残高が読めない時のフォールバック用）
+      - key: MAX_DAILY_LOSS_PCT
+        value: "0.08" # 本日の損失が総資産の8%を超えたら当日は新規買い停止
       - key: TRADING_HOURS
         value: "" # 空=24時間。例 "8-24" で8:00-24:00 JSTのみ新規買い
       - key: MAX_TRADES_PER_DAY

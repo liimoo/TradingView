@@ -65,6 +65,8 @@ class Settings:
     trading_hours: str = field(default_factory=lambda: _get("TRADING_HOURS", ""))
     # 1日の実現損失がこの額(JPY)を超えたら、その日は新規買いを停止（0=無効）
     max_daily_loss_jpy: float = field(default_factory=lambda: float(_get("MAX_DAILY_LOSS_JPY", "0")))
+    # 1日の実現損失が「総資産×この割合」を超えたら停止（0=無効。設定時は上のJPYより優先）。例 0.08=8%
+    max_daily_loss_pct: float = field(default_factory=lambda: float(_get("MAX_DAILY_LOSS_PCT", "0")))
     # 1日の新規エントリー回数の上限（0=無効）
     max_trades_per_day: int = field(default_factory=lambda: int(_get("MAX_TRADES_PER_DAY", "0")))
     allowed_symbols: list[str] = field(default_factory=lambda: _split_symbols(_get("ALLOWED_SYMBOLS", "")))

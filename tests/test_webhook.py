@@ -11,6 +11,7 @@ os.environ.setdefault("SYMBOL_MAP", "XRPUSDT=XRP/JPY")
 os.environ.setdefault("ORDER_COOLDOWN_SEC", "0")
 os.environ.setdefault("MAX_OPEN_POSITIONS", "1")
 os.environ.setdefault("MAX_DAILY_LOSS_JPY", "2000")
+os.environ.setdefault("MAX_DAILY_LOSS_PCT", "0.08")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -110,9 +111,18 @@ def test_within_trading_hours():
 
 
 def test_daily_loss_blocks_buy():
-    risk_manager.record_close(-2500)  # 本日 -¥2500（上限¥2000超）
+    risk_manager.record_close(-2500)  # 本日 -¥2500（固定上限¥2000超）
     r = client.post("/webhook", content=_payload(bar_time="dl1"))
     assert r.status_code == 200 and r.json()["status"] == "skipped"
+
+
+def test_daily_loss_pct():
+    # 総資産¥10,000 の8% = ¥800 が上限
+    risk_manager.record_close(-900)
+    assert risk_manager.daily_block_reason(10000) is not None   # -900 は超過→ブロック
+    risk_manager._day_pnl = 0.0
+    risk_manager.record_close(-500)
+    assert risk_manager.daily_block_reason(10000) is None       # -500 は上限内→OK
 
 
 def test_buy_then_sell_closes_position():

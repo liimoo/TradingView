@@ -83,6 +83,7 @@ async def health() -> dict:
         "order_quote_amount": settings.order_quote_amount,
         "day_pnl": round(risk_manager.day_pnl, 2),
         "day_entries": risk_manager.day_entries,
+        "max_daily_loss_pct": settings.max_daily_loss_pct,
         "daily_block": risk_manager.daily_block_reason(),
         "allowed_symbols": settings.allowed_symbols,
         "max_open_positions": settings.max_open_positions,
@@ -163,13 +164,22 @@ async def webhook(request: Request) -> JSONResponse:
     order_quote = settings.order_quote_amount
     try:
         if signal.action == "buy":
-            # 発注額 = 総資産の一定割合（資金が足りなければある分だけ）。未設定なら固定額
-            if settings.order_size_pct > 0 and broker.has_exchange:
+            # 総資産を取得（発注サイズ / デイリー損失上限% の計算用）
+            assets = free_jpy = None
+            if (settings.order_size_pct > 0 or settings.max_daily_loss_pct > 0) and broker.has_exchange:
                 try:
                     assets, free_jpy = await asyncio.to_thread(broker.portfolio)
-                    order_quote = sized_quote(settings.order_size_pct, assets, free_jpy, settings.order_quote_amount)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("資産取得に失敗、固定額にフォールバック: %s", exc)
+                    logger.warning("資産取得に失敗: %s", exc)
+            # デイリー損失上限（総資産%）チェック
+            block = risk_manager.daily_block_reason(assets)
+            if block:
+                logger.info("発注見送り: %s", block)
+                await notify(f"⏸️ 発注見送り [{block}] {symbol}")
+                return JSONResponse(status_code=200, content={"status": "skipped", "reason": block})
+            # 発注額 = 総資産の一定割合（資金が足りなければある分だけ）。未設定なら固定額
+            if settings.order_size_pct > 0 and assets:
+                order_quote = sized_quote(settings.order_size_pct, assets, free_jpy or 0, settings.order_quote_amount)
             if settings.min_order_jpy > 0 and order_quote < settings.min_order_jpy:
                 await notify(f"⏸️ 資金不足で見送り: {symbol}（発注可能額≈¥{order_quote:.0f} < 最小¥{settings.min_order_jpy:.0f}）")
                 return JSONResponse(status_code=200, content={"status": "skipped", "reason": "insufficient_funds"})

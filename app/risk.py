@@ -101,10 +101,16 @@ class RiskManager:
         self._roll_day()
         self._day_pnl += realized_pnl_jpy
 
-    def daily_block_reason(self) -> str | None:
+    def daily_block_reason(self, total_assets: float | None = None) -> str | None:
         self._roll_day()
-        if settings.max_daily_loss_jpy > 0 and self._day_pnl <= -settings.max_daily_loss_jpy:
-            return f"本日の損失上限¥{settings.max_daily_loss_jpy:.0f}に到達（本日損益¥{self._day_pnl:.0f}）"
+        # 損失上限: 総資産%が設定されていれば優先、無ければ固定JPY
+        limit = None
+        if settings.max_daily_loss_pct > 0 and total_assets and total_assets > 0:
+            limit = total_assets * settings.max_daily_loss_pct
+        elif settings.max_daily_loss_jpy > 0:
+            limit = settings.max_daily_loss_jpy
+        if limit and self._day_pnl <= -limit:
+            return f"本日の損失上限(¥{limit:.0f})に到達（本日損益¥{self._day_pnl:.0f}）"
         if settings.max_trades_per_day > 0 and self._day_entries >= settings.max_trades_per_day:
             return f"本日の取引回数上限{settings.max_trades_per_day}回に到達"
         return None
