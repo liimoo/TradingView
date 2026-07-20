@@ -185,6 +185,17 @@ def test_roundtrips_fifo_pnl():
     assert abs(s["total_pnl"] - 10) < 1e-9
 
 
+def test_roundtrips_entry_rsi():
+    from app.report import _build_roundtrips
+
+    trades = [
+        {"side": "buy", "amount": 1, "price": 100, "timestamp": 1000, "order": "b1"},
+        {"side": "sell", "amount": 1, "price": 105, "timestamp": 2000, "order": "s1"},
+    ]
+    rts, _ = _build_roundtrips(trades, {}, {"b1": 28.5})
+    assert rts[0]["entry_rsi"] == 28.5
+
+
 def test_roundtrips_open_lot():
     from app.report import _build_roundtrips
 

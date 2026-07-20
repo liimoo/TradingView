@@ -35,8 +35,9 @@ def _fmt_hold(sec) -> str:
     return f"{m // 60}時間{m % 60}分"
 
 
-def _build_roundtrips(trades: list, reason_map: dict) -> tuple[list, list]:
+def _build_roundtrips(trades: list, reason_map: dict, rsi_map: dict | None = None) -> tuple[list, list]:
     """約定を買い→売りでFIFOペアリングし、往復（クローズ済み）と未決済lotを返す。"""
+    rsi_map = rsi_map or {}
     trades = sorted(trades, key=lambda t: t.get("timestamp") or 0)
     lots: list[dict] = []  # 未決済の買いlot（FIFO）
     rts: list[dict] = []
@@ -48,7 +49,7 @@ def _build_roundtrips(trades: list, reason_map: dict) -> tuple[list, list]:
         if amt <= 0:
             continue
         if side == "buy":
-            lots.append({"qty": amt, "price": price, "time": ts})
+            lots.append({"qty": amt, "price": price, "time": ts, "order": t.get("order")})
         elif side == "sell":
             remaining = amt
             reason = reason_map.get(str(t.get("order"))) if t.get("order") is not None else None
@@ -59,6 +60,7 @@ def _build_roundtrips(trades: list, reason_map: dict) -> tuple[list, list]:
                     {
                         "entry_ts": lot["time"],
                         "entry_price": lot["price"],
+                        "entry_rsi": rsi_map.get(str(lot.get("order"))),
                         "exit_ts": ts,
                         "exit_price": price,
                         "qty": m,
@@ -108,11 +110,15 @@ def build_report() -> dict:
     except Exception as exc:  # noqa: BLE001
         out["balance_error"] = f"{type(exc).__name__}: {exc}"
 
-    # サーバ側ログから 決済order_id -> 理由 を作る（RSI/損切り/利確の注記用）
+    # サーバ側ログから order_id -> 理由 / 買いのRSI を作る（注記用・再デプロイで消える点に注意）
+    jentries = journal.read_trades(1000)
     reason_map = {
-        str(e.get("order_id")): e.get("reason")
-        for e in journal.read_trades(500)
-        if e.get("order_id") and e.get("reason")
+        str(e.get("order_id")): e.get("reason") for e in jentries if e.get("order_id") and e.get("reason")
+    }
+    rsi_map = {
+        str(e.get("order_id")): e.get("rsi")
+        for e in jentries
+        if e.get("order_id") and e.get("action") == "buy" and e.get("rsi") is not None
     }
 
     for sym in settings.allowed_symbols:
@@ -159,7 +165,7 @@ def build_report() -> dict:
             "net_base": buy_base - sell_base,  # 未決済の建玉(base)
             "rows": rows[-30:],
         }
-        rts, open_lots = _build_roundtrips(trades, reason_map)
+        rts, open_lots = _build_roundtrips(trades, reason_map, rsi_map)
         out["symbols"][sym]["roundtrips"] = rts[-50:]
         out["symbols"][sym]["rt_summary"] = _rt_summary(rts)
         out["symbols"][sym]["open_lots"] = len(open_lots)
@@ -233,7 +239,7 @@ def render_html(data: dict) -> str:
             parts.append("</div>")
         if rts:
             parts.append(
-                "<table><tr><th>#</th><th class='l'>エントリー(JST)</th><th>取得単価</th>"
+                "<table><tr><th>#</th><th class='l'>エントリー(JST)</th><th>取得単価</th><th>取得RSI</th>"
                 "<th class='l'>決済(JST)</th><th>決済単価</th><th>数量</th><th>損益</th><th>損益%</th><th>保有</th><th class='l'>理由</th></tr>"
             )
             total = len(rts)
@@ -243,6 +249,7 @@ def render_html(data: dict) -> str:
                 parts.append(
                     f"<tr><td>{num}</td>"
                     f"<td class='l'>{esc(_fmt_ts(r['entry_ts'], True) if r['entry_ts'] else '')}</td><td>{r['entry_price']}</td>"
+                    f"<td>{r['entry_rsi'] if r.get('entry_rsi') is not None else '-'}</td>"
                     f"<td class='l'>{esc(_fmt_ts(r['exit_ts'], True) if r['exit_ts'] else '')}</td><td>{r['exit_price']}</td>"
                     f"<td>{r['qty']}</td>"
                     f"<td class='{pcls}'>{_yen(r['pnl'])}</td><td class='{pcls}'>{r['pnl_pct']:+.2f}%</td>"
