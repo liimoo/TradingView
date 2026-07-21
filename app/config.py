@@ -71,6 +71,8 @@ class Settings:
     max_trades_per_day: int = field(default_factory=lambda: int(_get("MAX_TRADES_PER_DAY", "0")))
     allowed_symbols: list[str] = field(default_factory=lambda: _split_symbols(_get("ALLOWED_SYMBOLS", "")))
     symbol_map: dict = field(default_factory=lambda: _parse_symbol_map(_get("SYMBOL_MAP", "")))
+    # 信用取引(ロング+ショート)で扱う銘柄。ここに無い銘柄は現物ロング専用。例 BTC/JPY,ETH/JPY,XRP/JPY
+    margin_symbols: list[str] = field(default_factory=lambda: _split_symbols(_get("MARGIN_SYMBOLS", "")))
 
     host: str = field(default_factory=lambda: _get("HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(_get("PORT", "8000")))
@@ -91,6 +93,10 @@ class Settings:
     def resolve_symbol(self, raw: str) -> str:
         """TVの銘柄表記を取引所ペアへ変換（未登録ならそのまま大文字化して返す）。"""
         return self.symbol_map.get(raw.upper(), raw.upper())
+
+    def is_margin(self, symbol: str) -> bool:
+        """信用取引(ロング+ショート)対象の銘柄か。"""
+        return symbol in self.margin_symbols
 
 
 settings = Settings()

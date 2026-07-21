@@ -6,8 +6,9 @@ import os
 
 os.environ.setdefault("TRADING_MODE", "DRY_RUN")
 os.environ.setdefault("WEBHOOK_SECRET", "test-secret")
-os.environ.setdefault("ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT,BTC/JPY,XRP/JPY")
-os.environ.setdefault("SYMBOL_MAP", "XRPUSDT=XRP/JPY")
+os.environ.setdefault("ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT,BTC/JPY,XRP/JPY,SOL/JPY")
+os.environ.setdefault("SYMBOL_MAP", "XRPUSDT=XRP/JPY,SOLUSDT=SOL/JPY")
+os.environ.setdefault("MARGIN_SYMBOLS", "SOL/JPY")
 os.environ.setdefault("ORDER_COOLDOWN_SEC", "0")
 os.environ.setdefault("MAX_OPEN_POSITIONS", "1")
 os.environ.setdefault("MAX_DAILY_LOSS_JPY", "2000")
@@ -166,6 +167,24 @@ def test_killswitch_blocks_order():
 def test_health():
     r = client.get("/health")
     assert r.status_code == 200 and r.json()["mode"] == "DRY_RUN"
+
+
+# ---- 信用取引（フリップ） ----
+def test_margin_flip_long_then_short():
+    r = client.post("/webhook", content=_payload(symbol="SOLUSDT", action="buy", bar_time="m1"))
+    assert r.json()["status"] == "dry_run"
+    pos = risk_manager.get_position("SOL/JPY")
+    assert pos is not None and pos.side == "long"  # 買い→ロング建て
+    r2 = client.post("/webhook", content=_payload(symbol="SOLUSDT", action="sell", bar_time="m2"))
+    assert r2.json()["status"] == "dry_run"
+    pos2 = risk_manager.get_position("SOL/JPY")
+    assert pos2 is not None and pos2.side == "short"  # 売り→ショートへ反転
+
+
+def test_margin_same_direction_skipped():
+    client.post("/webhook", content=_payload(symbol="SOLUSDT", action="buy", bar_time="sd1"))
+    r = client.post("/webhook", content=_payload(symbol="SOLUSDT", action="buy", bar_time="sd2"))
+    assert r.json()["status"] == "skipped"  # 既にロングなので見送り
 
 
 # ---- 取引レポート ----

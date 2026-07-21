@@ -43,6 +43,8 @@ async def reconstruct_positions() -> None:
         return
     free = bal.get("free", {}) or {}
     for sym in settings.allowed_symbols:
+        if settings.is_margin(sym):
+            continue  # 信用は現物残高に出ないので下で別途復元
         base = sym.split("/")[0]
         qty = float(free.get(base) or 0)
         min_amt = broker.market_min_amount(sym)
@@ -79,6 +81,25 @@ async def reconstruct_positions() -> None:
                     logger.warning("逆指値を再設定: %s stop@%s id=%s", sym, sp, so.get("id"))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("逆指値の復元/再設定に失敗: %s", exc)
+
+    # 信用建玉(ロング/ショート)の復元
+    if settings.margin_symbols:
+        try:
+            mpos = await asyncio.to_thread(broker.margin_positions)
+        except Exception as exc:  # noqa: BLE001
+            mpos = []
+            logger.warning("信用建玉の取得に失敗: %s", exc)
+        for p in mpos:
+            pair = (p.get("pair") or "").upper().replace("_", "/")
+            if pair not in settings.margin_symbols:
+                continue
+            side = p.get("position_side")
+            qty = float(p.get("open_amount") or 0)
+            entry = float(p.get("average_price") or 0)
+            if qty > 0 and side in ("long", "short"):
+                risk_manager.open_position(pair, qty, entry, side=side)
+                logger.warning("信用建玉を復元: %s %s qty=%s entry=%s", pair, side, qty, entry)
+                await notify(f"♻️ 信用建玉を復元: {pair} {side} {qty} @ {entry}")
 
 
 async def _do_market_close(sym, pos, px, reason, emoji, label) -> None:
@@ -144,6 +165,45 @@ async def _reconcile_stop(sym, pos) -> str:
     return "open"
 
 
+async def _handle_margin_exit(sym, pos, sl: float, tp: float) -> None:
+    """信用建玉(ロング/ショート)の損切り/利確をサーバ監視で判定し成行決済する。"""
+    try:
+        px = await asyncio.to_thread(broker.ticker, sym)
+    except Exception:  # noqa: BLE001
+        return
+    entry = pos.entry_price
+    if not entry or entry <= 0:
+        return
+    reason = emoji = label = None
+    if pos.side == "long":
+        if sl > 0 and px <= entry * (1 - sl):
+            reason, emoji, label = "stop_loss", "🛑", f"損切り(-{sl*100:.1f}%)"
+        elif tp > 0 and px >= entry * (1 + tp):
+            reason, emoji, label = "take_profit", "💰", f"利確(+{tp*100:.1f}%)"
+    else:  # short: 値上がりが損、値下がりが利益
+        if sl > 0 and px >= entry * (1 + sl):
+            reason, emoji, label = "stop_loss", "🛑", f"損切り(+{sl*100:.1f}%上昇)"
+        elif tp > 0 and px <= entry * (1 - tp):
+            reason, emoji, label = "take_profit", "💰", f"利確(-{tp*100:.1f}%下落)"
+    if reason is None:
+        return
+    close_side = "sell" if pos.side == "long" else "buy"
+    try:
+        cres = await asyncio.to_thread(broker.margin_order, sym, close_side, pos.base_qty, pos.side, px)
+        sign = 1 if pos.side == "long" else -1
+        risk_manager.record_close(sign * (px - entry) * (pos.base_qty or 0))
+        risk_manager.close_position(sym)
+        journal.record_trade({
+            "mode": settings.trading_mode, "action": "close", "symbol": sym, "side": pos.side,
+            "filled_base": cres.get("filled_base"), "price": px, "reason": reason,
+            "entry_price": entry, "order_id": (cres.get("order") or {}).get("id"), "status": cres.get("status"),
+        })
+        await notify(f"{emoji} 信用{pos.side.upper()} {label}決済: {sym} @ {px}（取得 {entry}）\n{cres.get('summary')}")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("信用決済エラー")
+        await notify(f"❌ 信用決済エラー: {sym}: {exc}")
+
+
 async def exit_monitor_loop() -> None:
     """逆指値の約定監視＋利確(サーバ主導)＋逆指値が無い時の損切りフォールバック。"""
     if settings.trading_mode not in {"LIVE", "TESTNET"} or not broker.has_exchange:
@@ -160,6 +220,10 @@ async def exit_monitor_loop() -> None:
             for sym, pos in list(risk_manager._positions.items()):
                 if risk_manager.is_killed():
                     break
+                # 信用建玉はロング/ショート両対応の別処理へ
+                if settings.is_margin(sym):
+                    await _handle_margin_exit(sym, pos, sl, tp)
+                    continue
                 # 1) 逆指値(native stop)の約定/消滅を照合
                 if await _reconcile_stop(sym, pos) == "closed":
                     continue

@@ -51,6 +51,7 @@ class Position:
     entry_price: float
     opened_ts: float
     stop_order_id: str | None = None  # bitbankに置いた逆指値注文のID
+    side: str = "long"  # long / short（現物は常に long、信用でのみ short もあり得る）
 
 
 @dataclass
@@ -126,19 +127,24 @@ class RiskManager:
         return self._day_entries
 
     # ---- 発注可否の判定 ----
-    def check(self, symbol: str, action: str, now: float | None = None) -> RiskDecision:
+    def precheck(self, symbol: str, action: str, now: float | None = None) -> RiskDecision:
+        """現物・信用 共通の即時チェック（キルスイッチ・許可シンボル・クールダウン）。"""
         now = time.time() if now is None else now
-
         if self.is_killed():
             return RiskDecision(False, "キルスイッチON")
-
         if symbol not in settings.allowed_symbols:
             return RiskDecision(False, f"許可外シンボル: {symbol}")
-
         last = self._last_order_ts.get((symbol, action))
         if last is not None and (now - last) < settings.order_cooldown_sec:
             wait = settings.order_cooldown_sec - (now - last)
             return RiskDecision(False, f"クールダウン中（あと{wait:.0f}秒）")
+        return RiskDecision(True)
+
+    def check(self, symbol: str, action: str, now: float | None = None) -> RiskDecision:
+        """現物ロング専用の判定。"""
+        dec = self.precheck(symbol, action, now)
+        if not dec.allowed:
+            return dec
 
         if action == "buy":
             if not within_trading_hours(settings.trading_hours):
@@ -163,11 +169,12 @@ class RiskManager:
         self._last_order_ts[(symbol, action)] = now
 
     def open_position(self, symbol: str, base_qty: float, entry_price: float = 0.0,
-                      stop_order_id: str | None = None, now: float | None = None) -> None:
+                      stop_order_id: str | None = None, side: str = "long", now: float | None = None) -> None:
         if base_qty and base_qty > 0:
             now = time.time() if now is None else now
             self._positions[symbol] = Position(
-                base_qty=base_qty, entry_price=entry_price or 0.0, opened_ts=now, stop_order_id=stop_order_id
+                base_qty=base_qty, entry_price=entry_price or 0.0, opened_ts=now,
+                stop_order_id=stop_order_id, side=side
             )
 
     def set_stop_order(self, symbol: str, order_id: str | None) -> None:

@@ -21,7 +21,7 @@ from .config import settings, sized_quote
 from .models import Signal
 from .notifier import notify
 from .report import build_report, render_html
-from .risk import risk_manager
+from .risk import risk_manager, within_trading_hours
 from .security import verify_secret
 
 # ---- logging ----
@@ -86,6 +86,7 @@ async def health() -> dict:
         "max_daily_loss_pct": settings.max_daily_loss_pct,
         "daily_block": risk_manager.daily_block_reason(),
         "allowed_symbols": settings.allowed_symbols,
+        "margin_symbols": settings.margin_symbols,
         "max_open_positions": settings.max_open_positions,
     }
 
@@ -150,6 +151,10 @@ async def webhook(request: Request) -> JSONResponse:
     symbol = settings.resolve_symbol(signal.symbol)
     logger.info("シグナル受信: %s %s→%s price=%s rsi=%s tf=%s",
                 signal.action, signal.symbol, symbol, signal.price, signal.rsi, signal.tf)
+
+    # 信用取引の銘柄はロング/ショートのフリップ戦略へ分岐（現物はこの下の従来ロジック）
+    if settings.is_margin(symbol):
+        return await handle_margin(symbol, signal)
 
     # 3) リスク判定
     decision = risk_manager.check(symbol, signal.action)
@@ -242,6 +247,107 @@ async def webhook(request: Request) -> JSONResponse:
         f"rsi={signal.rsi} price={signal.price}\n{result.get('summary')}"
     )
     return JSONResponse(status_code=200, content={"status": result.get("status"), "summary": result.get("summary")})
+
+
+def _skip(reason: str):
+    return JSONResponse(status_code=200, content={"status": "skipped", "reason": reason})
+
+
+async def handle_margin(symbol: str, signal: Signal) -> JSONResponse:
+    """信用取引のフリップ戦略。buy→ロング / sell→ショート。反対建玉は決済してから反転。"""
+    target_side = "long" if signal.action == "buy" else "short"
+    pos = risk_manager.get_position(symbol)
+
+    # 共通チェック（キルスイッチ・許可・クールダウン）
+    dec = risk_manager.precheck(symbol, signal.action)
+    if not dec.allowed:
+        await notify(f"⏸️ 見送り [{dec.reason}] 信用 {signal.action} {symbol}")
+        return _skip(dec.reason)
+
+    # 既に同方向なら何もしない
+    if pos and pos.side == target_side:
+        return _skip(f"既に{target_side}建玉あり")
+
+    # 総資産（サイズ・デイリー損失用）
+    assets = free_jpy = None
+    if broker.has_exchange:
+        try:
+            assets, free_jpy = await asyncio.to_thread(broker.portfolio)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("資産取得に失敗: %s", exc)
+
+    # エントリーゲート（時間帯・デイリー損失・建玉上限）
+    if not within_trading_hours(settings.trading_hours):
+        await notify(f"⏸️ 見送り [取引時間外] 信用 {symbol}")
+        return _skip("取引時間外")
+    block = risk_manager.daily_block_reason(assets)
+    if block:
+        await notify(f"⏸️ 見送り [{block}] 信用 {symbol}")
+        return _skip(block)
+    if pos is None and risk_manager.open_count >= settings.max_open_positions:
+        await notify(f"⏸️ 見送り [建玉上限({settings.max_open_positions})] 信用 {symbol}")
+        return _skip("建玉上限")
+
+    risk_manager.mark_ordered(symbol, signal.action)
+
+    # 発注額と価格
+    order_quote = settings.order_quote_amount
+    if settings.order_size_pct > 0 and assets:
+        order_quote = sized_quote(settings.order_size_pct, assets, free_jpy or 0, settings.order_quote_amount)
+    px = signal.price or 0.0
+    if (not px or px <= 0) and broker.has_exchange:
+        try:
+            px = await asyncio.to_thread(broker.ticker, symbol)
+        except Exception:  # noqa: BLE001
+            px = 0.0
+
+    try:
+        # 1) 反対建玉があれば決済
+        if pos:
+            if pos.stop_order_id and broker.has_exchange:
+                try:
+                    await asyncio.to_thread(broker.cancel, symbol, pos.stop_order_id)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("逆指値キャンセル失敗: %s", exc)
+            close_side = "sell" if pos.side == "long" else "buy"
+            cres = await asyncio.to_thread(broker.margin_order, symbol, close_side, pos.base_qty, pos.side, px)
+            exitp = cres.get("filled_price") or px
+            if pos.entry_price and exitp:
+                sign = 1 if pos.side == "long" else -1
+                risk_manager.record_close(sign * (exitp - pos.entry_price) * (pos.base_qty or 0))
+            risk_manager.close_position(symbol)
+            journal.record_trade({
+                "mode": settings.trading_mode, "action": "close", "symbol": symbol, "side": pos.side,
+                "filled_base": cres.get("filled_base"), "price": exitp, "reason": "flip",
+                "entry_price": pos.entry_price, "order_id": (cres.get("order") or {}).get("id"),
+                "status": cres.get("status"),
+            })
+
+        # 2) 新規建て
+        amount = (order_quote / px) if px else None
+        if not amount or amount <= 0:
+            await notify(f"❌ 信用: 価格取得できず建てられません {symbol}")
+            return JSONResponse(status_code=502, content={"status": "order_error", "detail": "no price"})
+        open_side = "buy" if target_side == "long" else "sell"
+        ores = await asyncio.to_thread(broker.margin_order, symbol, open_side, amount, target_side, px)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("信用発注エラー")
+        await notify(f"❌ 信用発注エラー: {symbol}: {exc}")
+        return JSONResponse(status_code=502, content={"status": "order_error", "detail": str(exc)})
+
+    if ores.get("status") in {"ok", "dry_run"}:
+        entry_price = ores.get("filled_price") or px or 0.0
+        risk_manager.open_position(symbol, ores.get("filled_base"), entry_price, side=target_side)
+        risk_manager.record_entry()
+        journal.record_trade({
+            "mode": settings.trading_mode, "action": "open", "symbol": symbol, "side": target_side,
+            "quote": order_quote, "filled_base": ores.get("filled_base"), "price": entry_price,
+            "rsi": signal.rsi, "order_id": (ores.get("order") or {}).get("id"), "status": ores.get("status"),
+        })
+
+    emoji = "🟩" if target_side == "long" else "🟥"
+    await notify(f"{emoji} 信用 {target_side.upper()} {symbol} rsi={signal.rsi} price={px}\n{ores.get('summary')}")
+    return JSONResponse(status_code=200, content={"status": ores.get("status"), "summary": ores.get("summary")})
 
 
 class KillswitchBody(BaseModel):

@@ -112,6 +112,42 @@ class Broker:
         with self._lock:
             return self._exchange.fetch_open_orders(symbol)
 
+    # ---------- 信用取引（ロング/ショート） ----------
+    def margin_order(self, symbol: str, side: str, base_amount: float, position_side: str,
+                     price: Optional[float] = None) -> "OrderResult":
+        """信用の成行注文。side=buy/sell, position_side=long/short。
+        建て: (long,buy) / (short,sell)。決済: (long,sell) / (short,buy)。"""
+        if self.mode == "DRY_RUN" or self._exchange is None:
+            summary = f"[DRY_RUN] 信用 {position_side} {side} {symbol} 数量≈{base_amount}"
+            logger.info(summary)
+            return OrderResult(status="dry_run", summary=summary, filled_base=base_amount, filled_price=price, order=None)
+        ex = self._exchange
+        with self._lock:
+            amount = float(ex.amount_to_precision(symbol, base_amount))
+            order = ex.create_order(symbol, "market", side, amount, None, {"position_side": position_side})
+        filled = order.get("filled") or order.get("amount")
+        fp = order.get("average") or order.get("price") or price
+        summary = f"[{self.mode}] 信用 {position_side} {side} {symbol} amount={amount} id={order.get('id')}"
+        logger.info(summary)
+        return OrderResult(status="ok", summary=summary, filled_base=filled, filled_price=fp, order=order)
+
+    def margin_positions(self) -> list:
+        """建玉一覧。[{pair, position_side, open_amount, average_price, ...}]"""
+        with self._lock:
+            resp = self._exchange.privateGetUserMarginPositions()
+        data = (resp or {}).get("data") or {}
+        return data.get("positions") or []
+
+    def margin_status(self) -> dict:
+        """証拠金・ロスカット率などの信用ステータス（best-effort）。"""
+        try:
+            with self._lock:
+                resp = self._exchange.request("user/margin/status", "private", "GET", {})
+            return (resp or {}).get("data") or {}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("信用ステータス取得に失敗: %s", exc)
+            return {}
+
     def market_min_amount(self, symbol: str) -> float:
         try:
             return float(self._exchange.market(symbol).get("limits", {}).get("amount", {}).get("min") or 0)
