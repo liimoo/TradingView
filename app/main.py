@@ -126,6 +126,64 @@ async def positions_endpoint(secret: str = ""):
     return JSONResponse(out)
 
 
+def _render_panel(secret: str) -> str:
+    tmpl = """<!doctype html><html lang='ja'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>操作パネル</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;margin:1rem;background:#f6f7f9;color:#111}
+h1{font-size:1.2rem}.card{background:#fff;border:1px solid #e2e2e2;border-radius:10px;padding:1rem;margin:.7rem 0}
+button{font-size:1rem;padding:.7rem 1rem;border-radius:8px;border:0;color:#fff;cursor:pointer;width:100%;margin:.3rem 0}
+.red{background:#d33}.orange{background:#e08600}.green{background:#0a8f3c}.gray{background:#666}
+a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-space:pre-wrap;word-break:break-all}
+.muted{color:#888;font-size:.85rem}
+</style></head><body>
+<h1>🎛️ 操作パネル</h1>
+<div class='card' id='status'>読み込み中...</div>
+<div class='card'>
+  <button class='red' onclick="flatten()">🧹 全建玉を今すぐクローズ（flatten）</button>
+  <button class='orange' onclick="kill(true)">🛑 緊急停止（新規発注を止める）</button>
+  <button class='green' onclick="kill(false)">▶ 発注を再開</button>
+</div>
+<div class='card'>
+  <div class='muted'>詳しく見る</div>
+  <a href='/report?secret=__S__' target='_blank'>📊 損益レポート</a> ／
+  <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a> ／
+  <a href='/health' target='_blank'>🩺 稼働状況</a>
+</div>
+<div class='card mono' id='log'></div>
+<script>
+const S="__S__";
+function log(m){document.getElementById('log').textContent=(new Date().toLocaleTimeString())+" "+m+"\\n"+document.getElementById('log').textContent;}
+async function refresh(){
+  try{const r=await fetch('/health');const d=await r.json();
+    let pos=Object.entries(d.positions||{}).map(([k,v])=>k+": "+v.side+" "+v.base+" @"+v.entry).join("\\n")||"（建玉なし）";
+    document.getElementById('status').innerHTML="<b>状態: "+d.mode+"</b>　本日損益: ¥"+d.day_pnl+(d.killed?" 　<b style='color:#d33'>停止中</b>":"")+"<br><div class='mono'>"+pos+"</div>";
+  }catch(e){document.getElementById('status').textContent="取得失敗: "+e;}
+}
+async function flatten(){
+  if(!confirm("本当に全部の建玉をクローズしますか？"))return;
+  log("flatten実行中...");
+  try{const r=await fetch('/flatten',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S})});
+    const d=await r.json();log("flatten結果: "+JSON.stringify(d));refresh();}catch(e){log("失敗: "+e);}
+}
+async function kill(on){
+  log((on?"緊急停止":"再開")+"実行中...");
+  try{const r=await fetch('/killswitch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S,on:on})});
+    const d=await r.json();log("結果: "+JSON.stringify(d));refresh();}catch(e){log("失敗: "+e);}
+}
+refresh();setInterval(refresh,15000);
+</script></body></html>"""
+    return tmpl.replace("__S__", secret)
+
+
+@app.get("/panel")
+async def panel(secret: str = ""):
+    """ブラウザで押せる操作パネル（状態表示＋クローズ/緊急停止ボタン）。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return HTMLResponse("<h3>unauthorized（URLに ?secret=... が必要です）</h3>", status_code=401)
+    return HTMLResponse(_render_panel(secret))
+
+
 @app.get("/orders")
 async def orders(secret: str = ""):
     """取引所の未約定注文（逆指値の確認用）。/orders?secret=..."""
