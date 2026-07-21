@@ -94,9 +94,11 @@ class Settings:
     symbol_map: dict = field(default_factory=lambda: _parse_symbol_map(_get("SYMBOL_MAP", "")))
     # 信用取引(ロング+ショート)で扱う銘柄。ここに無い銘柄は現物ロング専用。例 BTC/JPY,ETH/JPY,XRP/JPY
     margin_symbols: list[str] = field(default_factory=lambda: _split_symbols(_get("MARGIN_SYMBOLS", "")))
-    # 取引所が信用に対応している銘柄(安全ガード)。bitbankはBTC/ETH/XRPのみ。ここに無い銘柄は信用不可→現物扱い
+    # 取引所が信用に対応している銘柄(安全ガード)。bitbankはBTC/ETH/XRP/SOL/DOGEの5銘柄。ここに無い銘柄は信用不可→現物扱い
     margin_capable: list[str] = field(
-        default_factory=lambda: _split_symbols(_get("MARGIN_CAPABLE", "BTC/JPY,ETH/JPY,XRP/JPY"))
+        default_factory=lambda: _split_symbols(
+            _get("MARGIN_CAPABLE", "BTC/JPY,ETH/JPY,XRP/JPY,SOL/JPY,DOGE/JPY")
+        )
     )
 
     host: str = field(default_factory=lambda: _get("HOST", "0.0.0.0"))
