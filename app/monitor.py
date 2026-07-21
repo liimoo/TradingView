@@ -43,8 +43,7 @@ async def reconstruct_positions() -> None:
         return
     free = bal.get("free", {}) or {}
     for sym in settings.allowed_symbols:
-        if settings.is_margin(sym):
-            continue  # 信用は現物残高に出ないので下で別途復元
+        # ロングは現物残高から復元（信用銘柄もハイブリッドのロングは現物）
         base = sym.split("/")[0]
         qty = float(free.get(base) or 0)
         min_amt = broker.market_min_amount(sym)
@@ -63,11 +62,11 @@ async def reconstruct_positions() -> None:
                 entry = await asyncio.to_thread(broker.ticker, sym)
             except Exception:  # noqa: BLE001
                 entry = 0.0
-        risk_manager.open_position(sym, qty, entry)
-        logger.warning("起動時に建玉を復元: %s qty=%s entry=%s", sym, qty, entry)
-        await notify(f"♻️ 起動時に建玉を復元: {sym} {qty} @ entry≈{entry}")
-        # 逆指値(stop)の復元: 既存があれば採用、無ければ再設定
-        if settings.stop_loss_pct > 0:
+        risk_manager.open_position(sym, qty, entry, side="long")
+        logger.warning("起動時にロング建玉を復元: %s qty=%s entry=%s", sym, qty, entry)
+        await notify(f"♻️ ロング建玉を復元: {sym} {qty} @ entry≈{entry}")
+        # 逆指値(stop)の復元は現物銘柄のみ（信用ハイブリッドのロングはサーバ監視）
+        if not settings.is_margin(sym) and settings.stop_loss_pct > 0:
             try:
                 oo = await asyncio.to_thread(broker.open_orders, sym)
                 stop = next((o for o in oo if o.get("side") == "sell"), None)
@@ -82,8 +81,8 @@ async def reconstruct_positions() -> None:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("逆指値の復元/再設定に失敗: %s", exc)
 
-    # 信用建玉(ロング/ショート)の復元
-    if settings.margin_symbols:
+    # 信用のショート建玉を復元（ハイブリッドではショートのみ信用。ロングは上で現物から復元済み）
+    if settings.effective_margin_symbols():
         try:
             mpos = await asyncio.to_thread(broker.margin_positions)
         except Exception as exc:  # noqa: BLE001
@@ -91,15 +90,14 @@ async def reconstruct_positions() -> None:
             logger.warning("信用建玉の取得に失敗: %s", exc)
         for p in mpos:
             pair = (p.get("pair") or "").upper().replace("_", "/")
-            if pair not in settings.margin_symbols:
+            if pair not in settings.margin_symbols or p.get("position_side") != "short":
                 continue
-            side = p.get("position_side")
             qty = float(p.get("open_amount") or 0)
             entry = float(p.get("average_price") or 0)
-            if qty > 0 and side in ("long", "short"):
-                risk_manager.open_position(pair, qty, entry, side=side)
-                logger.warning("信用建玉を復元: %s %s qty=%s entry=%s", pair, side, qty, entry)
-                await notify(f"♻️ 信用建玉を復元: {pair} {side} {qty} @ {entry}")
+            if qty > 0:
+                risk_manager.open_position(pair, qty, entry, side="short")
+                logger.warning("信用ショート建玉を復元: %s qty=%s entry=%s", pair, qty, entry)
+                await notify(f"♻️ 信用ショート建玉を復元: {pair} {qty} @ {entry}")
 
 
 async def _do_market_close(sym, pos, px, reason, emoji, label) -> None:
@@ -187,9 +185,11 @@ async def _handle_margin_exit(sym, pos, sl: float, tp: float) -> None:
             reason, emoji, label = "take_profit", "💰", f"利確(-{tp*100:.1f}%下落)"
     if reason is None:
         return
-    close_side = "sell" if pos.side == "long" else "buy"
     try:
-        cres = await asyncio.to_thread(broker.margin_order, sym, close_side, pos.base_qty, pos.side, px)
+        if pos.side == "long":  # ロングは現物で売り決済
+            cres = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px)
+        else:  # ショートは信用で買い戻し
+            cres = await asyncio.to_thread(broker.margin_order, sym, "buy", pos.base_qty, "short", px)
         sign = 1 if pos.side == "long" else -1
         risk_manager.record_close(sign * (px - entry) * (pos.base_qty or 0))
         risk_manager.close_position(sym)

@@ -326,15 +326,17 @@ async def handle_margin(symbol: str, signal: Signal) -> JSONResponse:
             px = 0.0
 
     try:
-        # 1) 反対建玉があれば決済
+        # 1) 反対建玉があれば決済（ロング=現物売り / ショート=信用買い戻し）
         if pos:
-            if pos.stop_order_id and broker.has_exchange:
-                try:
-                    await asyncio.to_thread(broker.cancel, symbol, pos.stop_order_id)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("逆指値キャンセル失敗: %s", exc)
-            close_side = "sell" if pos.side == "long" else "buy"
-            cres = await asyncio.to_thread(broker.margin_order, symbol, close_side, pos.base_qty, pos.side, px)
+            if pos.side == "long":
+                if pos.stop_order_id and broker.has_exchange:
+                    try:
+                        await asyncio.to_thread(broker.cancel, symbol, pos.stop_order_id)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("逆指値キャンセル失敗: %s", exc)
+                cres = await asyncio.to_thread(broker.sell, symbol, pos.base_qty, px)
+            else:  # short → 信用で買い戻し
+                cres = await asyncio.to_thread(broker.margin_order, symbol, "buy", pos.base_qty, "short", px)
             exitp = cres.get("filled_price") or px
             if pos.entry_price and exitp:
                 sign = 1 if pos.side == "long" else -1
@@ -347,16 +349,18 @@ async def handle_margin(symbol: str, signal: Signal) -> JSONResponse:
                 "status": cres.get("status"),
             })
 
-        # 2) 新規建て
-        amount = (order_quote / px) if px else None
-        if not amount or amount <= 0:
-            await notify(f"❌ 信用: 価格取得できず建てられません {symbol}")
-            return JSONResponse(status_code=502, content={"status": "order_error", "detail": "no price"})
-        open_side = "buy" if target_side == "long" else "sell"
-        ores = await asyncio.to_thread(broker.margin_order, symbol, open_side, amount, target_side, px)
+        # 2) 新規建て（ロング=現物buy / ショート=信用sell）
+        if target_side == "long":
+            ores = await asyncio.to_thread(broker.buy, symbol, order_quote, px)
+        else:
+            amount = (order_quote / px) if px else None
+            if not amount or amount <= 0:
+                await notify(f"❌ 信用: 価格取得できず建てられません {symbol}")
+                return JSONResponse(status_code=502, content={"status": "order_error", "detail": "no price"})
+            ores = await asyncio.to_thread(broker.margin_order, symbol, "sell", amount, "short", px)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("信用発注エラー")
-        await notify(f"❌ 信用発注エラー: {symbol}: {exc}")
+        logger.exception("ハイブリッド発注エラー")
+        await notify(f"❌ 発注エラー: {symbol}: {exc}")
         return JSONResponse(status_code=502, content={"status": "order_error", "detail": str(exc)})
 
     if ores.get("status") in {"ok", "dry_run"}:
@@ -369,9 +373,50 @@ async def handle_margin(symbol: str, signal: Signal) -> JSONResponse:
             "rsi": signal.rsi, "order_id": (ores.get("order") or {}).get("id"), "status": ores.get("status"),
         })
 
-    emoji = "🟩" if target_side == "long" else "🟥"
-    await notify(f"{emoji} 信用 {target_side.upper()} {symbol} rsi={signal.rsi} price={px}\n{ores.get('summary')}")
+    if target_side == "long":
+        emoji, label = "🟩", "現物ロング"
+    else:
+        emoji, label = "🟥", "信用ショート"
+    await notify(f"{emoji} {label} {symbol} rsi={signal.rsi} price={px}\n{ores.get('summary')}")
     return JSONResponse(status_code=200, content={"status": ores.get("status"), "summary": ores.get("summary")})
+
+
+class SecretBody(BaseModel):
+    secret: str
+
+
+@app.post("/flatten")
+async def flatten(body: SecretBody):
+    """全建玉を決済してフラットにする（緊急用・テスト後始末用）。"""
+    if not verify_secret(body.secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    results = []
+    for sym, pos in list(risk_manager._positions.items()):
+        px = pos.entry_price or 0.0
+        if broker.has_exchange:
+            try:
+                px = await asyncio.to_thread(broker.ticker, sym)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            if pos.side == "long":
+                if pos.stop_order_id and broker.has_exchange:
+                    try:
+                        await asyncio.to_thread(broker.cancel, sym, pos.stop_order_id)
+                    except Exception:  # noqa: BLE001
+                        pass
+                res = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px)
+            else:
+                res = await asyncio.to_thread(broker.margin_order, sym, "buy", pos.base_qty, "short", px)
+            if pos.entry_price:
+                sign = 1 if pos.side == "long" else -1
+                risk_manager.record_close(sign * (px - pos.entry_price) * (pos.base_qty or 0))
+            risk_manager.close_position(sym)
+            results.append({"symbol": sym, "side": pos.side, "summary": res.get("summary")})
+        except Exception as exc:  # noqa: BLE001
+            results.append({"symbol": sym, "error": str(exc)})
+    await notify(f"🧹 全建玉クローズ: {len(results)}件")
+    return JSONResponse(content={"closed": results})
 
 
 class KillswitchBody(BaseModel):
