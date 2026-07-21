@@ -389,6 +389,15 @@ async def _handle_spot(symbol: str, signal: Signal) -> dict:
     risk_manager.mark_ordered(symbol, signal.action)
     order_quote = settings.order_quote_amount
     held = None
+    # 価格は取引所(JPY)から取得（signal.priceはUSD建てなので使わない）
+    px = 0.0
+    if broker.has_exchange:
+        try:
+            px = await asyncio.to_thread(broker.ticker, symbol)
+        except Exception:  # noqa: BLE001
+            px = 0.0
+    if not px:
+        px = signal.price or 0.0
     try:
         if signal.action == "buy":
             assets = free_jpy = None
@@ -406,7 +415,7 @@ async def _handle_spot(symbol: str, signal: Signal) -> dict:
             if settings.min_order_jpy > 0 and order_quote < settings.min_order_jpy:
                 await notify(f"⏸️ 資金不足で見送り: {symbol}（発注可能額≈¥{order_quote:.0f}）")
                 return _skip("insufficient_funds")
-            result = await asyncio.to_thread(broker.buy, symbol, order_quote, signal.price)
+            result = await asyncio.to_thread(broker.buy, symbol, order_quote, px)
         else:  # sell = 保有分の決済
             held = risk_manager.get_position(symbol)
             if held and held.stop_order_id and broker.has_exchange:
@@ -415,7 +424,7 @@ async def _handle_spot(symbol: str, signal: Signal) -> dict:
                     risk_manager.set_stop_order(symbol, None)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("逆指値キャンセル失敗（約定済みの可能性）: %s", exc)
-            result = await asyncio.to_thread(broker.sell, symbol, held.base_qty, signal.price)
+            result = await asyncio.to_thread(broker.sell, symbol, held.base_qty, px)
     except Exception as exc:  # noqa: BLE001
         logger.exception("発注エラー")
         await notify(f"❌ 発注エラー: {signal.action} {symbol}: {exc}")
@@ -427,12 +436,12 @@ async def _handle_spot(symbol: str, signal: Signal) -> dict:
             {
                 "mode": settings.trading_mode, "action": signal.action, "symbol": symbol,
                 "quote": order_quote if signal.action == "buy" else None, "filled_base": result.get("filled_base"),
-                "price": signal.price, "rsi": signal.rsi, "order_id": order.get("id"),
+                "price": result.get("filled_price") or px, "rsi": signal.rsi, "order_id": order.get("id"),
                 "status": result.get("status"), "reason": ("rsi_signal" if signal.action == "sell" else None),
             }
         )
         if signal.action == "buy":
-            entry_price = result.get("filled_price") or signal.price or 0.0
+            entry_price = result.get("filled_price") or px or 0.0
             risk_manager.open_position(symbol, result.get("filled_base"), entry_price)
             risk_manager.record_entry()
             if result.get("status") == "ok" and settings.stop_loss_pct > 0 and broker.has_exchange:
@@ -445,7 +454,7 @@ async def _handle_spot(symbol: str, signal: Signal) -> dict:
                     logger.exception("逆指値設定エラー")
                     await notify(f"⚠️ 逆指値の設定に失敗（サーバ監視でカバー）: {symbol}: {exc}")
         else:
-            exit_price = result.get("filled_price") or signal.price or 0.0
+            exit_price = result.get("filled_price") or px or 0.0
             if held and held.entry_price and exit_price:
                 risk_manager.record_close((exit_price - held.entry_price) * (held.base_qty or 0))
             risk_manager.close_position(symbol)
@@ -496,12 +505,15 @@ async def handle_margin(symbol: str, signal: Signal) -> dict:
     order_quote = settings.order_quote_amount
     if settings.order_size_pct > 0 and assets:
         order_quote = sized_quote(settings.order_size_pct, assets, free_jpy or 0, settings.order_quote_amount)
-    px = signal.price or 0.0
-    if (not px or px <= 0) and broker.has_exchange:
+    # 価格は取引所(JPY)から取得。signal.priceはUSD建てで別物なので使わない
+    px = 0.0
+    if broker.has_exchange:
         try:
             px = await asyncio.to_thread(broker.ticker, symbol)
         except Exception:  # noqa: BLE001
             px = 0.0
+    if not px:  # DRY_RUN等のフォールバック
+        px = signal.price or 0.0
 
     try:
         # 1) 反対建玉があれば決済（ロング=現物売り / ショート=信用買い戻し）

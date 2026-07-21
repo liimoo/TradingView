@@ -176,14 +176,12 @@ class Broker:
 
         ex = self._exchange
         with self._lock:
-            if ex.has.get("createMarketBuyOrderWithCost"):
-                order = ex.create_market_buy_order_with_cost(symbol, quote_amount)
-            else:
-                px = self._price_for(symbol, price)
-                amount = float(ex.amount_to_precision(symbol, quote_amount / px))
-                order = ex.create_order(symbol, "market", "buy", amount, None, {})
+            # 数量は必ず取引所(JPY)の現在価格で計算（signal.priceはUSD建てで別物なので使わない）
+            px = float(ex.fetch_ticker(symbol)["last"])
+            amount = float(ex.amount_to_precision(symbol, quote_amount / px))
+            order = ex.create_order(symbol, "market", "buy", amount, None, {})
         filled = order.get("filled") or order.get("amount")
-        filled_price = order.get("average") or order.get("price") or (price if price and price > 0 else None)
+        filled_price = order.get("average") or order.get("price") or px
         summary = f"[{self.mode}] 買い成功: {symbol} cost≈{quote_amount} filled={filled}@{filled_price} id={order.get('id')}"
         logger.info(summary)
         return OrderResult(status="ok", summary=summary, filled_base=filled, filled_price=filled_price, order=order)
