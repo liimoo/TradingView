@@ -155,7 +155,7 @@ async def _reconcile_stop(sym, pos) -> str:
                 "status": "ok",
             }
         )
-        await notify(f"🛑 逆指値約定: {sym} @ {fill}（取得 {pos.entry_price}）")
+        await notify(f"😖 逆指値約定: {sym} @ {fill}（取得 {pos.entry_price}）")
         return "closed"
     if st in ("canceled", "cancelled", "rejected", "expired"):
         risk_manager.set_stop_order(sym, None)  # フォールバックのサーバ監視へ
@@ -175,12 +175,12 @@ async def _handle_margin_exit(sym, pos, sl: float, tp: float) -> None:
     reason = emoji = label = None
     if pos.side == "long":
         if sl > 0 and px <= entry * (1 - sl):
-            reason, emoji, label = "stop_loss", "🛑", f"損切り(-{sl*100:.1f}%)"
+            reason, emoji, label = "stop_loss", "😖", f"損切り(-{sl*100:.1f}%)"
         elif tp > 0 and px >= entry * (1 + tp):
             reason, emoji, label = "take_profit", "💰", f"利確(+{tp*100:.1f}%)"
     else:  # short: 値上がりが損、値下がりが利益
         if sl > 0 and px >= entry * (1 + sl):
-            reason, emoji, label = "stop_loss", "🛑", f"損切り(+{sl*100:.1f}%上昇)"
+            reason, emoji, label = "stop_loss", "😖", f"損切り(+{sl*100:.1f}%上昇)"
         elif tp > 0 and px <= entry * (1 - tp):
             reason, emoji, label = "take_profit", "💰", f"利確(-{tp*100:.1f}%下落)"
     if reason is None:
@@ -240,7 +240,7 @@ async def exit_monitor_loop() -> None:
                     continue
                 # 4) フォールバック損切り（逆指値が無い時だけサーバが売る）
                 if pos.stop_order_id is None and should_stop(pos.entry_price, px, sl):
-                    await _do_market_close(sym, pos, px, "stop_loss", "🛑", f"損切り(-{sl*100:.1f}%)")
+                    await _do_market_close(sym, pos, px, "stop_loss", "😖", f"損切り(-{sl*100:.1f}%)")
         except Exception as exc:  # noqa: BLE001
             logger.warning("監視ループ例外: %s", exc)
         await asyncio.sleep(settings.monitor_interval_sec)

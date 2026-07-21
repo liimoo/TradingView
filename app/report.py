@@ -88,7 +88,7 @@ def render_positions_html(data: dict) -> str:
             "<th>現在値</th><th>含み損益</th></tr>"
         )
         for p in poss:
-            side = "ロング🟩" if p["side"] == "long" else "ショート🟥"
+            side = "ロング🟩" if p["side"] == "long" else "ショート🟦"
             up = p.get("upnl")
             upcell = "-" if up is None else f"<span class='{'pos' if up>=0 else 'neg'}'>{_yen(up)}</span>"
             parts.append(

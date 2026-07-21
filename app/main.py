@@ -192,11 +192,11 @@ async def panel(secret: str = ""):
 
 _GUIDE_ROWS = [
     ("🟢 BUY {銘柄}", "現物の買い（ロング建て）。RSIが30を割った"),
-    ("🔴 SELL {銘柄}", "現物の売り（ロングを決済）。RSIが70を超えた"),
+    ("🔵 SELL {銘柄}", "現物の売り（ロングを決済）。RSIが70を超えた"),
     ("🟩 現物ロング {銘柄}", "信用対象銘柄(XRP/ETH)を現物でロング建て（RSI30割れ）"),
-    ("🟥 信用ショート {銘柄}", "信用で新規ショート建て（RSI70超え）"),
+    ("🟦 信用ショート {銘柄}", "信用で新規ショート建て（RSI70超え）"),
     ("💰 利確決済", "取得単価から+5%（または反対シグナル）で利益確定"),
-    ("🛑 損切り決済 / 🛑 逆指値約定", "取得単価から-5%で損切り。ショートは値上がりで損切り"),
+    ("😖 損切り決済 / 😖 逆指値約定", "取得単価から-5%で損切り。ショートは値上がりで損切り"),
     ("🔻 逆指値set", "現物銘柄で、買いと同時にbitbankへ逆指値(自動損切り)を設置"),
     ("⏸️ 発注見送り [理由]", "安全機能で発注しなかった。理由＝許可外銘柄/建玉なし/建玉上限/クールダウン中/取引時間外/本日の損失上限/既に同方向/資金不足 など。多くは正常動作"),
     ("♻️ 建玉を復元", "サーバ再起動時に、保有中の建玉を自動で復元した"),
@@ -459,7 +459,7 @@ async def _handle_spot(symbol: str, signal: Signal) -> dict:
                 risk_manager.record_close((exit_price - held.entry_price) * (held.base_qty or 0))
             risk_manager.close_position(symbol)
 
-    emoji = "🟢" if signal.action == "buy" else "🔴"
+    emoji = "🟢" if signal.action == "buy" else "🔵"
     await notify(f"{emoji} {signal.action.upper()} {symbol} rsi={signal.rsi} price={signal.price}\n{result.get('summary')}")
     return {"status": result.get("status"), "summary": result.get("summary")}
 
@@ -566,7 +566,7 @@ async def handle_margin(symbol: str, signal: Signal) -> dict:
     if target_side == "long":
         emoji, label = "🟩", "現物ロング"
     else:
-        emoji, label = "🟥", "信用ショート"
+        emoji, label = "🟦", "信用ショート"
     await notify(f"{emoji} {label} {symbol} rsi={signal.rsi} price={px}\n{ores.get('summary')}")
     return {"status": ores.get("status"), "summary": ores.get("summary")}
 
