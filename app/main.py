@@ -477,6 +477,8 @@ async def handle_margin(symbol: str, signal: Signal) -> dict:
 
     # 既に同方向なら何もしない
     if pos and pos.side == target_side:
+        jp = "ロング" if target_side == "long" else "ショート"
+        await notify(f"⏸️ 見送り [既に{jp}建玉あり] 信用 {signal.action} {symbol} (rsi={signal.rsi})")
         return _skip(f"既に{target_side}建玉あり")
 
     # 総資産（サイズ・デイリー損失用）
