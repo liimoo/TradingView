@@ -103,6 +103,29 @@ async def report(secret: str = "", format: str = "html"):
     return HTMLResponse(render_html(data))
 
 
+@app.get("/positions")
+async def positions_endpoint(secret: str = ""):
+    """トラッキング建玉 と bitbankの実信用建玉・証拠金状況を返す（確認用）。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    out = {
+        "tracked": {
+            s: {"side": p.side, "base": p.base_qty, "entry": p.entry_price}
+            for s, p in risk_manager._positions.items()
+        }
+    }
+    if broker.has_exchange:
+        try:
+            out["bitbank_margin"] = await asyncio.to_thread(broker.margin_positions)
+        except Exception as exc:  # noqa: BLE001
+            out["bitbank_margin_error"] = str(exc)
+        try:
+            out["margin_status"] = await asyncio.to_thread(broker.margin_status)
+        except Exception as exc:  # noqa: BLE001
+            out["margin_status_error"] = str(exc)
+    return JSONResponse(out)
+
+
 @app.get("/orders")
 async def orders(secret: str = ""):
     """取引所の未約定注文（逆指値の確認用）。/orders?secret=..."""
