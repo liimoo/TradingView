@@ -74,7 +74,7 @@ async def health() -> dict:
         "killed": risk_manager.is_killed(),
         "open_positions": risk_manager.open_count,
         "positions": {
-            s: {"base": p.base_qty, "entry": p.entry_price, "stop": p.stop_order_id}
+            s: {"side": p.side, "base": p.base_qty, "entry": p.entry_price, "stop": p.stop_order_id}
             for s, p in risk_manager._positions.items()
         },
         "stop_loss_pct": settings.stop_loss_pct,
