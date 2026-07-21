@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import html as html_lib
 import logging
 from collections import deque
 from contextlib import asynccontextmanager
@@ -148,9 +149,11 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
   <button class='green' onclick="kill(false)">▶ 発注を再開</button>
 </div>
 <div class='card'>
-  <div class='muted'>詳しく見る</div>
+  <div class='muted'>詳しく見る・設定</div>
   <a href='/report?secret=__S__' target='_blank'>📊 損益レポート</a> ／
-  <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a> ／
+  <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a><br>
+  <a href='/config?secret=__S__' target='_blank'>⚙️ パラメーター調整</a> ／
+  <a href='/guide' target='_blank'>📖 通知の見方</a> ／
   <a href='/health' target='_blank'>🩺 稼働状況</a>
 </div>
 <div class='card mono' id='log'></div>
@@ -185,6 +188,116 @@ async def panel(secret: str = ""):
     if not verify_secret(secret, settings.webhook_secret):
         return HTMLResponse("<h3>unauthorized（URLに ?secret=... が必要です）</h3>", status_code=401)
     return HTMLResponse(_render_panel(secret))
+
+
+_GUIDE_ROWS = [
+    ("🟢 BUY {銘柄}", "現物の買い（ロング建て）。RSIが30を割った"),
+    ("🔴 SELL {銘柄}", "現物の売り（ロングを決済）。RSIが70を超えた"),
+    ("🟩 現物ロング {銘柄}", "信用対象銘柄(XRP/ETH)を現物でロング建て（RSI30割れ）"),
+    ("🟥 信用ショート {銘柄}", "信用で新規ショート建て（RSI70超え）"),
+    ("💰 利確決済", "取得単価から+5%（または反対シグナル）で利益確定"),
+    ("🛑 損切り決済 / 🛑 逆指値約定", "取得単価から-5%で損切り。ショートは値上がりで損切り"),
+    ("🔻 逆指値set", "現物銘柄で、買いと同時にbitbankへ逆指値(自動損切り)を設置"),
+    ("⏸️ 発注見送り [理由]", "安全機能で発注しなかった。理由＝許可外銘柄/建玉なし/建玉上限/クールダウン中/取引時間外/本日の損失上限/既に同方向/資金不足 など。多くは正常動作"),
+    ("♻️ 建玉を復元", "サーバ再起動時に、保有中の建玉を自動で復元した"),
+    ("🧹 全建玉クローズ", "操作パネルのクローズボタンを実行した"),
+    ("🛑 キルスイッチ ON/OFF", "緊急停止/再開を実行した"),
+    ("❌ 発注エラー", "注文が失敗。要チェック（残高不足・API一時エラーなど。続くなら相談を）"),
+    ("⚠️ 逆指値の設定に失敗", "逆指値が置けずサーバ監視の損切りに切替。頻発するなら相談を"),
+]
+
+
+@app.get("/guide")
+async def guide():
+    """Discord通知の見方（解説ページ・合言葉不要）。"""
+    rows = "".join(
+        f"<tr><td class='l' style='white-space:nowrap'>{html_lib.escape(k)}</td><td class='l'>{html_lib.escape(v)}</td></tr>"
+        for k, v in _GUIDE_ROWS
+    )
+    page = (
+        "<!doctype html><html lang='ja'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>通知の見方</title><style>"
+        "body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:1.2rem;background:#fafafa;color:#111}"
+        "h1{font-size:1.2rem}table{border-collapse:collapse;width:100%;background:#fff;font-size:.9rem}"
+        "th,td{border:1px solid #ddd;padding:.5rem .6rem;text-align:left;vertical-align:top}th{background:#f0f0f0}"
+        ".muted{color:#888}</style></head><body>"
+        "<h1>📖 Discord通知の見方</h1>"
+        "<p class='muted'>基本、❌ と ⚠️ 以外は「見るだけ」でOKです。</p>"
+        "<table><tr><th>通知</th><th>意味</th></tr>" + rows + "</table>"
+        "</body></html>"
+    )
+    return HTMLResponse(page)
+
+
+_CONFIG_FIELDS = [
+    ("stop_loss_pct", "損切り幅（0.05 = 5%）"),
+    ("take_profit_pct", "利確幅（0.05 = 5%）"),
+    ("order_size_pct", "発注サイズ＝総資産の割合（0.10 = 10%。0で下の固定額）"),
+    ("max_daily_loss_pct", "デイリー損失上限＝総資産の割合（0.08 = 8%）"),
+    ("max_open_positions", "同時に持てる建玉数"),
+    ("order_quote_amount", "固定発注額（円）※発注サイズ%が0の時のみ使用"),
+    ("order_cooldown_sec", "連続発注クールダウン（秒）"),
+]
+
+
+def _render_config(secret: str) -> str:
+    cur = settings.editable()
+    rows = "".join(
+        f"<div class='row'><label>{html_lib.escape(lbl)}</label>"
+        f"<input id='{k}' value='{html_lib.escape(str(cur.get(k)))}'></div>"
+        for k, lbl in _CONFIG_FIELDS
+    )
+    keys_js = ",".join(f"'{k}'" for k, _ in _CONFIG_FIELDS)
+    tmpl = """<!doctype html><html lang='ja'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>パラメーター調整</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:1rem;background:#f6f7f9;color:#111}
+h1{font-size:1.2rem}.card{background:#fff;border:1px solid #e2e2e2;border-radius:10px;padding:1rem;margin:.7rem 0}
+.row{margin:.6rem 0}label{display:block;font-size:.9rem;margin-bottom:.2rem}
+input{font-size:1rem;padding:.5rem;width:100%;box-sizing:border-box;border:1px solid #ccc;border-radius:6px}
+button{font-size:1rem;padding:.7rem 1rem;border-radius:8px;border:0;color:#fff;background:#0a8f3c;cursor:pointer;width:100%}
+.muted{color:#888;font-size:.85rem}.mono{font-family:ui-monospace,monospace;font-size:.85rem}
+</style></head><body>
+<h1>⚙️ パラメーター調整</h1>
+<div class='card'>__ROWS__
+  <button onclick='save()'>保存して即反映</button>
+</div>
+<div class='card muted'>⚠️ ここでの変更は<b>すぐ反映</b>されます（次のシグナルから有効）。ただし<b>Renderの再デプロイ時にはRenderの設定値へ戻ります</b>。恒久的に変えるならRenderのEnvironmentを変更してください。空欄の項目は変更しません。</div>
+<div class='card mono' id='log'></div>
+<script>
+const S="__S__"; const KEYS=[__KEYS__];
+function log(m){document.getElementById('log').textContent=m;}
+async function save(){
+  const v={}; KEYS.forEach(k=>{const el=document.getElementById(k); if(el && el.value!=='') v[k]=el.value;});
+  try{const r=await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S,values:v})});
+    const d=await r.json(); log('反映しました: '+JSON.stringify(d.applied||d));}catch(e){log('失敗: '+e);}
+}
+</script></body></html>"""
+    return tmpl.replace("__ROWS__", rows).replace("__KEYS__", keys_js).replace("__S__", secret)
+
+
+class ConfigBody(BaseModel):
+    secret: str
+    values: dict = {}
+
+
+@app.get("/config")
+async def config_get(secret: str = ""):
+    """パラメーター調整ページ（ブラウザで編集）。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return HTMLResponse("<h3>unauthorized（URLに ?secret=... が必要です）</h3>", status_code=401)
+    return HTMLResponse(_render_config(secret))
+
+
+@app.post("/config")
+async def config_post(body: ConfigBody):
+    if not verify_secret(body.secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    applied = settings.apply_overrides(body.values)
+    if applied:
+        await notify(f"⚙️ 設定変更: {applied}")
+    return JSONResponse({"applied": applied, "current": settings.editable()})
 
 
 @app.get("/orders")

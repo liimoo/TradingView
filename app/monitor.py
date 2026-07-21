@@ -209,13 +209,9 @@ async def exit_monitor_loop() -> None:
     if settings.trading_mode not in {"LIVE", "TESTNET"} or not broker.has_exchange:
         logger.info("決済監視は無効（DRY_RUN/取引所なし）")
         return
-    sl, tp = settings.stop_loss_pct, settings.take_profit_pct
-    if (not sl or sl <= 0) and (not tp or tp <= 0):
-        logger.info("損切り/利確とも無効")
-        return
-    logger.info("決済監視 開始: 逆指値-%.1f%% / 利確+%.1f%% / %ds間隔",
-                sl * 100, tp * 100, settings.monitor_interval_sec)
+    logger.info("決済監視 開始: %ds間隔", settings.monitor_interval_sec)
     while True:
+        sl, tp = settings.stop_loss_pct, settings.take_profit_pct  # 毎回読み直し（調整を即反映）
         try:
             for sym, pos in list(risk_manager._positions.items()):
                 if risk_manager.is_killed():

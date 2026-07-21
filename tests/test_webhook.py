@@ -170,6 +170,25 @@ def test_health():
     assert r.status_code == 200 and r.json()["mode"] == "DRY_RUN"
 
 
+# ---- パネル/ガイド/設定 ----
+def test_guide_public():
+    assert client.get("/guide").status_code == 200
+
+
+def test_config_get_secret():
+    assert client.get("/config").status_code == 401
+    assert client.get("/config", params={"secret": "test-secret"}).status_code == 200
+
+
+def test_config_post_applies_and_restores():
+    from app.config import settings as _s
+
+    old = _s.stop_loss_pct
+    r = client.post("/config", content=json.dumps({"secret": "test-secret", "values": {"stop_loss_pct": "0.03"}}))
+    assert r.status_code == 200 and _s.stop_loss_pct == 0.03
+    _s.stop_loss_pct = old  # 後片付け
+
+
 # ---- 信用取引（フリップ） ----
 def test_margin_flip_long_then_short():
     r = client.post("/webhook", content=_payload(symbol="SOLUSDT", action="buy", bar_time="m1"))

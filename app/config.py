@@ -1,14 +1,28 @@
 """環境変数(.env)から設定を読み込む。"""
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()  # プロジェクト直下の .env を読む
 
 VALID_MODES = {"DRY_RUN", "TESTNET", "LIVE"}
+
+# ブラウザから調整できるパラメータ（キー: 型）
+_EDITABLE = {
+    "stop_loss_pct": float,
+    "take_profit_pct": float,
+    "order_size_pct": float,
+    "order_quote_amount": float,
+    "max_daily_loss_pct": float,
+    "max_open_positions": int,
+    "order_cooldown_sec": int,
+}
+_OVERRIDE_FILE = Path(__file__).resolve().parent.parent / "logs" / "overrides.json"
 
 
 def _get(name: str, default: str = "") -> str:
@@ -103,6 +117,34 @@ class Settings:
         """TVの銘柄表記を取引所ペアへ変換（未登録ならそのまま大文字化して返す）。"""
         return self.symbol_map.get(raw.upper(), raw.upper())
 
+    # ---- ブラウザからの調整（ランタイム上書き） ----
+    def editable(self) -> dict:
+        return {k: getattr(self, k) for k in _EDITABLE}
+
+    def apply_overrides(self, values: dict, persist: bool = True) -> dict:
+        applied = {}
+        for k, v in (values or {}).items():
+            if k in _EDITABLE and v not in (None, ""):
+                try:
+                    setattr(self, k, _EDITABLE[k](v))
+                    applied[k] = getattr(self, k)
+                except (ValueError, TypeError):
+                    pass
+        if persist and applied:
+            try:
+                _OVERRIDE_FILE.parent.mkdir(parents=True, exist_ok=True)
+                _OVERRIDE_FILE.write_text(json.dumps(self.editable()))
+            except Exception:  # noqa: BLE001
+                pass
+        return applied
+
+    def load_overrides(self) -> None:
+        try:
+            if _OVERRIDE_FILE.exists():
+                self.apply_overrides(json.loads(_OVERRIDE_FILE.read_text()), persist=False)
+        except Exception:  # noqa: BLE001
+            pass
+
     def is_margin(self, symbol: str) -> bool:
         """信用取引(ロング+ショート)対象か。設定 かつ 取引所が信用対応 の銘柄のみ。"""
         return symbol in self.margin_symbols and symbol in self.margin_capable
@@ -113,3 +155,4 @@ class Settings:
 
 
 settings = Settings()
+settings.load_overrides()  # 前回のブラウザ調整を復元（再起動時。再デプロイでは消える）
