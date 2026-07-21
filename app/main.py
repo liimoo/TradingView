@@ -20,7 +20,7 @@ from .broker import broker
 from .config import settings, sized_quote
 from .models import Signal
 from .notifier import notify
-from .report import build_report, render_html
+from .report import build_positions, build_report, render_html, render_positions_html
 from .risk import risk_manager, within_trading_hours
 from .security import verify_secret
 
@@ -104,26 +104,29 @@ async def report(secret: str = "", format: str = "html"):
 
 
 @app.get("/positions")
-async def positions_endpoint(secret: str = ""):
-    """トラッキング建玉 と bitbankの実信用建玉・証拠金状況を返す（確認用）。"""
+async def positions_endpoint(secret: str = "", format: str = "html"):
+    """現在の建玉・含み損益・証拠金・残高。?format=json で生データ（bitbank実建玉含む）。"""
     if not verify_secret(secret, settings.webhook_secret):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
-    out = {
-        "tracked": {
-            s: {"side": p.side, "base": p.base_qty, "entry": p.entry_price}
-            for s, p in risk_manager._positions.items()
+    if format == "json":
+        out = {
+            "tracked": {
+                s: {"side": p.side, "base": p.base_qty, "entry": p.entry_price}
+                for s, p in risk_manager._positions.items()
+            }
         }
-    }
-    if broker.has_exchange:
-        try:
-            out["bitbank_margin"] = await asyncio.to_thread(broker.margin_positions)
-        except Exception as exc:  # noqa: BLE001
-            out["bitbank_margin_error"] = str(exc)
-        try:
-            out["margin_status"] = await asyncio.to_thread(broker.margin_status)
-        except Exception as exc:  # noqa: BLE001
-            out["margin_status_error"] = str(exc)
-    return JSONResponse(out)
+        if broker.has_exchange:
+            try:
+                out["bitbank_margin"] = await asyncio.to_thread(broker.margin_positions)
+            except Exception as exc:  # noqa: BLE001
+                out["bitbank_margin_error"] = str(exc)
+            try:
+                out["margin_status"] = await asyncio.to_thread(broker.margin_status)
+            except Exception as exc:  # noqa: BLE001
+                out["margin_status_error"] = str(exc)
+        return JSONResponse(out)
+    data = await asyncio.to_thread(build_positions)
+    return HTMLResponse(render_positions_html(data))
 
 
 def _render_panel(secret: str) -> str:

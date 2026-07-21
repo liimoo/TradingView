@@ -22,6 +22,105 @@ def _fmt_ts(ms_or_s: float, is_ms: bool) -> str:
         return str(ms_or_s)
 
 
+def build_positions() -> dict:
+    """現在の建玉・含み損益・証拠金・残高をまとめる。"""
+    from .risk import risk_manager
+
+    out: dict = {
+        "mode": settings.trading_mode,
+        "generated": datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S JST"),
+        "positions": [],
+        "balance": {},
+        "margin_status": {},
+    }
+    for sym, p in list(risk_manager._positions.items()):
+        px = None
+        if broker.has_exchange:
+            try:
+                px = broker.ticker(sym)
+            except Exception:  # noqa: BLE001
+                px = None
+        upnl = None
+        if px and p.entry_price:
+            sign = 1 if p.side == "long" else -1
+            upnl = sign * (px - p.entry_price) * (p.base_qty or 0)
+        out["positions"].append(
+            {"symbol": sym, "side": p.side, "base": p.base_qty, "entry": p.entry_price, "price": px, "upnl": upnl}
+        )
+    if broker.has_exchange:
+        try:
+            bal = broker.balance()
+            out["balance"] = {k: v for k, v in bal.get("free", {}).items() if v}
+        except Exception as exc:  # noqa: BLE001
+            out["balance_error"] = str(exc)
+        try:
+            out["margin_status"] = broker.margin_status()
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+_POS_STYLE = (
+    "body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;margin:1.2rem;color:#111;background:#fafafa}"
+    "h1{font-size:1.3rem}h2{font-size:1.05rem;margin-top:1.4rem}"
+    "table{border-collapse:collapse;width:100%;margin:.4rem 0;font-size:.9rem;background:#fff}"
+    "th,td{border:1px solid #ddd;padding:.4rem .55rem;text-align:right}th{background:#f0f0f0}"
+    "td.l,th.l{text-align:left}.pos{color:#0a8f3c;font-weight:bold}.neg{color:#d33;font-weight:bold}.muted{color:#888}"
+)
+
+
+def render_positions_html(data: dict) -> str:
+    esc = html.escape
+    parts = [
+        "<!doctype html><html lang='ja'><head><meta charset='utf-8'>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>",
+        f"<title>建玉状況</title><style>{_POS_STYLE}</style></head><body>",
+        f"<h1>建玉状況 <span class='muted'>({esc(data.get('mode',''))})</span></h1>",
+        f"<p class='muted'>{esc(data.get('generated',''))}</p>",
+    ]
+    poss = data.get("positions") or []
+    parts.append("<h2>現在の建玉</h2>")
+    if not poss:
+        parts.append("<p>建玉なし（フラット）</p>")
+    else:
+        parts.append(
+            "<table><tr><th class='l'>銘柄</th><th class='l'>方向</th><th>数量</th><th>取得単価</th>"
+            "<th>現在値</th><th>含み損益</th></tr>"
+        )
+        for p in poss:
+            side = "ロング🟩" if p["side"] == "long" else "ショート🟥"
+            up = p.get("upnl")
+            upcell = "-" if up is None else f"<span class='{'pos' if up>=0 else 'neg'}'>{_yen(up)}</span>"
+            parts.append(
+                f"<tr><td class='l'>{esc(p['symbol'])}</td><td class='l'>{side}</td>"
+                f"<td>{p['base']}</td><td>{p['entry']}</td><td>{p.get('price') if p.get('price') is not None else '-'}</td>"
+                f"<td>{upcell}</td></tr>"
+            )
+        parts.append("</table><p class='muted'>※含み損益は概算（現在値ベース）。手数料・金利は含みません</p>")
+
+    ms = data.get("margin_status") or {}
+    if ms:
+        parts.append("<h2>信用の証拠金状況</h2><table>")
+        parts.append(f"<tr><td class='l'>保証金率</td><td>{ms.get('total_margin_balance_percentage') or '-'} %</td></tr>")
+        parts.append(f"<tr><td class='l'>ロスカット率</td><td>{ms.get('losscut_percentage') or '-'} %</td></tr>")
+        parts.append(f"<tr><td class='l'>追証率</td><td>{ms.get('margin_call_percentage') or '-'} %</td></tr>")
+        parts.append(f"<tr><td class='l'>評価損益</td><td>{_yen(float(ms.get('margin_position_profit_loss') or 0))}</td></tr>")
+        parts.append("</table><p class='muted'>※ロスカット率に近づくと強制決済。建玉が無い時は「-」</p>")
+
+    bal = data.get("balance") or {}
+    if bal:
+        parts.append("<h2>残高</h2><table><tr><th class='l'>通貨</th><th>数量</th></tr>")
+        for k, v in bal.items():
+            parts.append(f"<tr><td class='l'>{esc(str(k))}</td><td>{v}</td></tr>")
+        parts.append("</table>")
+    if data.get("balance_error"):
+        parts.append(f"<p class='neg'>残高取得エラー: {esc(data['balance_error'])}</p>")
+
+    parts.append("<p class='muted'>操作は「操作パネル」から行えます</p>")
+    parts.append("</body></html>")
+    return "".join(parts)
+
+
 def _reason_label(reason: str | None) -> str:
     return {"stop_loss": "損切り", "take_profit": "利確", "rsi_signal": "RSI70", "entry": ""}.get(reason or "", reason or "")
 
