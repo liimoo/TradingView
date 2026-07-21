@@ -253,6 +253,17 @@ def build_report() -> dict:
                     "fee_ccy": fee.get("currency"),
                 }
             )
+        net_base = buy_base - sell_base  # 未決済の建玉(base)。+ならロング超過 / −ならショート超過
+        net_jpy = sell_cost - buy_cost - fee_jpy  # 売り金額−買い金額−手数料（建玉ゼロ時のみ純損益）
+        # 現在値で建玉を時価評価し、実現＋含みの総合損益を出す（未決済分を net_jpy に足し戻す）
+        last_price = open_value = mtm_pnl = None
+        if trades and abs(net_base) > 1e-12:
+            try:
+                last_price = broker.ticker(sym)
+                open_value = net_base * last_price
+                mtm_pnl = net_jpy + open_value
+            except Exception:  # noqa: BLE001
+                pass
         out["symbols"][sym] = {
             "trades": len(trades),
             "buy_base": buy_base,
@@ -260,8 +271,11 @@ def build_report() -> dict:
             "sell_base": sell_base,
             "sell_cost": sell_cost,
             "fee_jpy": fee_jpy,
-            "net_jpy": sell_cost - buy_cost - fee_jpy,  # 概算の実現損益（フラット時）
-            "net_base": buy_base - sell_base,  # 未決済の建玉(base)
+            "net_jpy": net_jpy,
+            "net_base": net_base,
+            "last_price": last_price,
+            "open_value": open_value,  # 未決済建玉の現在値(JPY)。ロングは+資産/ショートは−負債
+            "mtm_pnl": mtm_pnl,  # 実現＋含みの総合損益。建玉ゼロなら None（net_jpy をそのまま使う）
             "rows": rows[-30:],
         }
         rts, open_lots = _build_roundtrips(trades, reason_map, rsi_map)
@@ -306,20 +320,56 @@ def render_html(data: dict) -> str:
     if data.get("balance_error"):
         parts.append(f"<p class='neg'>残高取得エラー: {esc(data['balance_error'])}</p>")
 
-    for sym, s in (data.get("symbols") or {}).items():
+    # 全銘柄の総合損益（実現＋含み）を合計してトップに表示
+    syms = data.get("symbols") or {}
+    grand = 0.0
+    grand_ok = True
+    for s in syms.values():
+        if s.get("error") or not s.get("trades"):
+            continue
+        if abs(s.get("net_base") or 0) > 1e-12:
+            if s.get("mtm_pnl") is None:
+                grand_ok = False  # 建玉ありなのに現在値が取れず時価評価できない
+            else:
+                grand += s["mtm_pnl"]
+        else:
+            grand += s.get("net_jpy") or 0.0
+    if syms:
+        gcls = "pos" if grand >= 0 else "neg"
+        note = "" if grand_ok else " <span class='muted'>(一部の建玉は現在値未取得)</span>"
+        parts.append(
+            f"<div class='card'><b>総合損益（実現＋含み・全銘柄）: "
+            f"<span class='{gcls}'>{_yen(grand)}</span></b>{note}"
+            f"<br><span class='muted'>建玉は現在値で時価評価。未決済分の元手は損益に含めません（手数料・金利は概算）</span></div>"
+        )
+
+    for sym, s in syms.items():
         parts.append(f"<h2>{esc(sym)}</h2>")
         if s.get("error"):
             parts.append(f"<p class='neg'>取得エラー: {esc(s['error'])}</p>")
             continue
-        net = s["net_jpy"]
-        cls = "pos" if net >= 0 else "neg"
         parts.append("<div class='card'>")
         parts.append(f"約定件数: <b>{s['trades']}</b>　")
         parts.append(f"買い: {_yen(s['buy_cost'])} ({s['buy_base']:.4f})　")
         parts.append(f"売り: {_yen(s['sell_cost'])} ({s['sell_base']:.4f})　")
         parts.append(f"手数料(JPY): {_yen(s['fee_jpy'])}<br>")
-        parts.append(f"未決済建玉: <b>{s['net_base']:.4f}</b> base　")
-        parts.append(f"純損益(概算): <b class='{cls}'>{_yen(net)}</b>")
+        has_pos = abs(s.get("net_base") or 0) > 1e-12
+        if has_pos:
+            side_jp = "ロング" if s["net_base"] > 0 else "ショート"
+            parts.append(f"未決済建玉: <b>{abs(s['net_base']):.4f}</b> base（{side_jp}）")
+            if s.get("open_value") is not None:
+                parts.append(f"　現在値 ≈ {_yen(abs(s['open_value']))}")
+            parts.append("<br>")
+        if has_pos and s.get("mtm_pnl") is not None:
+            mtm = s["mtm_pnl"]
+            mcls = "pos" if mtm >= 0 else "neg"
+            parts.append(f"総合損益(実現＋含み・概算): <b class='{mcls}'>{_yen(mtm)}</b>")
+        elif has_pos:
+            parts.append("<span class='muted'>総合損益: 現在値が取得できず時価評価できません（往復トレードの実現損益は下記）</span>")
+        else:
+            net = s["net_jpy"]
+            cls = "pos" if net >= 0 else "neg"
+            parts.append(f"実現損益(概算): <b class='{cls}'>{_yen(net)}</b>")
         parts.append("</div>")
 
         # 往復トレード台帳（買い→売りペア）
