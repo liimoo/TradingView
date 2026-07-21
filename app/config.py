@@ -16,7 +16,12 @@ def _get(name: str, default: str = "") -> str:
 
 
 def _split_symbols(raw: str) -> list[str]:
-    return [s.strip() for s in raw.split(",") if s.strip()]
+    out = []
+    for s in raw.split(","):
+        s = s.strip().strip('"').strip("'").strip()  # 引用符も除去（貼り付けミス対策）
+        if s:
+            out.append(s)
+    return out
 
 
 def sized_quote(pct: float, total_assets: float, free_jpy: float, fixed: float) -> float:
@@ -73,6 +78,10 @@ class Settings:
     symbol_map: dict = field(default_factory=lambda: _parse_symbol_map(_get("SYMBOL_MAP", "")))
     # 信用取引(ロング+ショート)で扱う銘柄。ここに無い銘柄は現物ロング専用。例 BTC/JPY,ETH/JPY,XRP/JPY
     margin_symbols: list[str] = field(default_factory=lambda: _split_symbols(_get("MARGIN_SYMBOLS", "")))
+    # 取引所が信用に対応している銘柄(安全ガード)。bitbankはBTC/ETH/XRPのみ。ここに無い銘柄は信用不可→現物扱い
+    margin_capable: list[str] = field(
+        default_factory=lambda: _split_symbols(_get("MARGIN_CAPABLE", "BTC/JPY,ETH/JPY,XRP/JPY"))
+    )
 
     host: str = field(default_factory=lambda: _get("HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(_get("PORT", "8000")))
@@ -95,8 +104,12 @@ class Settings:
         return self.symbol_map.get(raw.upper(), raw.upper())
 
     def is_margin(self, symbol: str) -> bool:
-        """信用取引(ロング+ショート)対象の銘柄か。"""
-        return symbol in self.margin_symbols
+        """信用取引(ロング+ショート)対象か。設定 かつ 取引所が信用対応 の銘柄のみ。"""
+        return symbol in self.margin_symbols and symbol in self.margin_capable
+
+    def effective_margin_symbols(self) -> list[str]:
+        """実際に信用で動く銘柄（設定∩取引所対応）。"""
+        return [s for s in self.margin_symbols if s in self.margin_capable]
 
 
 settings = Settings()

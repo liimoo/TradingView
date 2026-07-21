@@ -9,6 +9,7 @@ os.environ.setdefault("WEBHOOK_SECRET", "test-secret")
 os.environ.setdefault("ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT,BTC/JPY,XRP/JPY,SOL/JPY")
 os.environ.setdefault("SYMBOL_MAP", "XRPUSDT=XRP/JPY,SOLUSDT=SOL/JPY")
 os.environ.setdefault("MARGIN_SYMBOLS", "SOL/JPY")
+os.environ.setdefault("MARGIN_CAPABLE", "SOL/JPY,XRP/JPY,ETH/JPY,BTC/JPY")  # テスト用にSOLも信用可扱い
 os.environ.setdefault("ORDER_COOLDOWN_SEC", "0")
 os.environ.setdefault("MAX_OPEN_POSITIONS", "1")
 os.environ.setdefault("MAX_DAILY_LOSS_JPY", "2000")

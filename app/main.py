@@ -87,6 +87,7 @@ async def health() -> dict:
         "daily_block": risk_manager.daily_block_reason(),
         "allowed_symbols": settings.allowed_symbols,
         "margin_symbols": settings.margin_symbols,
+        "margin_active": settings.effective_margin_symbols(),  # 実際に信用で動く銘柄(設定∩取引所対応)
         "max_open_positions": settings.max_open_positions,
     }
 
