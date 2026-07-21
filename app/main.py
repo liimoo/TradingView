@@ -350,46 +350,65 @@ async def webhook(request: Request) -> JSONResponse:
     logger.info("シグナル受信: %s %s→%s price=%s rsi=%s tf=%s",
                 signal.action, signal.symbol, symbol, signal.price, signal.rsi, signal.tf)
 
-    # 信用取引の銘柄はロング/ショートのフリップ戦略へ分岐（現物はこの下の従来ロジック）
-    if settings.is_margin(symbol):
-        return await handle_margin(symbol, signal)
+    # TradingViewのタイムアウト回避: 即200を返し、実際の売買はバックグラウンドで処理
+    if settings.webhook_sync:  # テスト時のみ同期
+        result = await _process_signal(symbol, signal)
+        return JSONResponse(status_code=200, content=result or {"status": "processed"})
+    asyncio.create_task(_process_signal(symbol, signal))
+    return JSONResponse(status_code=200, content={"status": "accepted"})
 
-    # 3) リスク判定
+
+_process_lock = asyncio.Lock()
+
+
+async def _process_signal(symbol: str, signal: Signal) -> dict:
+    """実際の売買処理（バックグラウンド・1件ずつ直列化）。"""
+    async with _process_lock:
+        try:
+            if settings.is_margin(symbol):
+                return await handle_margin(symbol, signal)
+            return await _handle_spot(symbol, signal)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("シグナル処理エラー")
+            await notify(f"❌ 処理エラー: {signal.action} {symbol}: {exc}")
+            return {"status": "error", "detail": str(exc)}
+
+
+def _skip(reason: str) -> dict:
+    return {"status": "skipped", "reason": reason}
+
+
+async def _handle_spot(symbol: str, signal: Signal) -> dict:
+    """現物ロング専用の処理。"""
     decision = risk_manager.check(symbol, signal.action)
     if not decision.allowed:
-        msg = f"⏸️ 発注見送り [{decision.reason}] {signal.action} {symbol} (rsi={signal.rsi})"
-        logger.info(msg)
-        await notify(msg)
-        return JSONResponse(status_code=200, content={"status": "skipped", "reason": decision.reason})
+        logger.info("見送り: %s", decision.reason)
+        await notify(f"⏸️ 発注見送り [{decision.reason}] {signal.action} {symbol} (rsi={signal.rsi})")
+        return _skip(decision.reason)
 
-    # 4) 発注（DRY_RUN/TESTNET/LIVE はモードで分岐）
-    risk_manager.mark_ordered(symbol, signal.action)  # クールダウン起点
+    risk_manager.mark_ordered(symbol, signal.action)
     order_quote = settings.order_quote_amount
+    held = None
     try:
         if signal.action == "buy":
-            # 総資産を取得（発注サイズ / デイリー損失上限% の計算用）
             assets = free_jpy = None
             if (settings.order_size_pct > 0 or settings.max_daily_loss_pct > 0) and broker.has_exchange:
                 try:
                     assets, free_jpy = await asyncio.to_thread(broker.portfolio)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("資産取得に失敗: %s", exc)
-            # デイリー損失上限（総資産%）チェック
             block = risk_manager.daily_block_reason(assets)
             if block:
-                logger.info("発注見送り: %s", block)
                 await notify(f"⏸️ 発注見送り [{block}] {symbol}")
-                return JSONResponse(status_code=200, content={"status": "skipped", "reason": block})
-            # 発注額 = 総資産の一定割合（資金が足りなければある分だけ）。未設定なら固定額
+                return _skip(block)
             if settings.order_size_pct > 0 and assets:
                 order_quote = sized_quote(settings.order_size_pct, assets, free_jpy or 0, settings.order_quote_amount)
             if settings.min_order_jpy > 0 and order_quote < settings.min_order_jpy:
-                await notify(f"⏸️ 資金不足で見送り: {symbol}（発注可能額≈¥{order_quote:.0f} < 最小¥{settings.min_order_jpy:.0f}）")
-                return JSONResponse(status_code=200, content={"status": "skipped", "reason": "insufficient_funds"})
+                await notify(f"⏸️ 資金不足で見送り: {symbol}（発注可能額≈¥{order_quote:.0f}）")
+                return _skip("insufficient_funds")
             result = await asyncio.to_thread(broker.buy, symbol, order_quote, signal.price)
         else:  # sell = 保有分の決済
             held = risk_manager.get_position(symbol)
-            # 先に逆指値(stop)をキャンセルしてから成行売り（二重売り防止）
             if held and held.stop_order_id and broker.has_exchange:
                 try:
                     await asyncio.to_thread(broker.cancel, symbol, held.stop_order_id)
@@ -400,30 +419,22 @@ async def webhook(request: Request) -> JSONResponse:
     except Exception as exc:  # noqa: BLE001
         logger.exception("発注エラー")
         await notify(f"❌ 発注エラー: {signal.action} {symbol}: {exc}")
-        return JSONResponse(status_code=502, content={"status": "order_error", "detail": str(exc)})
+        return {"status": "order_error", "detail": str(exc)}
 
-    # 建玉トラッキング更新＋取引記録
     if result.get("status") in {"ok", "dry_run"}:
         order = result.get("order") or {}
         journal.record_trade(
             {
-                "mode": settings.trading_mode,
-                "action": signal.action,
-                "symbol": symbol,
-                "quote": order_quote if signal.action == "buy" else None,
-                "filled_base": result.get("filled_base"),
-                "price": signal.price,
-                "rsi": signal.rsi,
-                "order_id": order.get("id"),
-                "status": result.get("status"),
-                "reason": ("rsi_signal" if signal.action == "sell" else None),
+                "mode": settings.trading_mode, "action": signal.action, "symbol": symbol,
+                "quote": order_quote if signal.action == "buy" else None, "filled_base": result.get("filled_base"),
+                "price": signal.price, "rsi": signal.rsi, "order_id": order.get("id"),
+                "status": result.get("status"), "reason": ("rsi_signal" if signal.action == "sell" else None),
             }
         )
         if signal.action == "buy":
             entry_price = result.get("filled_price") or signal.price or 0.0
             risk_manager.open_position(symbol, result.get("filled_base"), entry_price)
             risk_manager.record_entry()
-            # bitbankに逆指値(stop)を置く（実発注時のみ・失敗時はサーバ監視がフォールバック）
             if result.get("status") == "ok" and settings.stop_loss_pct > 0 and broker.has_exchange:
                 try:
                     stop_price = entry_price * (1 - settings.stop_loss_pct)
@@ -440,18 +451,11 @@ async def webhook(request: Request) -> JSONResponse:
             risk_manager.close_position(symbol)
 
     emoji = "🟢" if signal.action == "buy" else "🔴"
-    await notify(
-        f"{emoji} {signal.action.upper()} {symbol} "
-        f"rsi={signal.rsi} price={signal.price}\n{result.get('summary')}"
-    )
-    return JSONResponse(status_code=200, content={"status": result.get("status"), "summary": result.get("summary")})
+    await notify(f"{emoji} {signal.action.upper()} {symbol} rsi={signal.rsi} price={signal.price}\n{result.get('summary')}")
+    return {"status": result.get("status"), "summary": result.get("summary")}
 
 
-def _skip(reason: str):
-    return JSONResponse(status_code=200, content={"status": "skipped", "reason": reason})
-
-
-async def handle_margin(symbol: str, signal: Signal) -> JSONResponse:
+async def handle_margin(symbol: str, signal: Signal) -> dict:
     """信用取引のフリップ戦略。buy→ロング / sell→ショート。反対建玉は決済してから反転。"""
     target_side = "long" if signal.action == "buy" else "short"
     pos = risk_manager.get_position(symbol)
@@ -530,12 +534,12 @@ async def handle_margin(symbol: str, signal: Signal) -> JSONResponse:
             amount = (order_quote / px) if px else None
             if not amount or amount <= 0:
                 await notify(f"❌ 信用: 価格取得できず建てられません {symbol}")
-                return JSONResponse(status_code=502, content={"status": "order_error", "detail": "no price"})
+                return {"status": "order_error", "detail": "no price"}
             ores = await asyncio.to_thread(broker.margin_order, symbol, "sell", amount, "short", px)
     except Exception as exc:  # noqa: BLE001
         logger.exception("ハイブリッド発注エラー")
         await notify(f"❌ 発注エラー: {symbol}: {exc}")
-        return JSONResponse(status_code=502, content={"status": "order_error", "detail": str(exc)})
+        return {"status": "order_error", "detail": str(exc)}
 
     if ores.get("status") in {"ok", "dry_run"}:
         entry_price = ores.get("filled_price") or px or 0.0
@@ -552,7 +556,7 @@ async def handle_margin(symbol: str, signal: Signal) -> JSONResponse:
     else:
         emoji, label = "🟥", "信用ショート"
     await notify(f"{emoji} {label} {symbol} rsi={signal.rsi} price={px}\n{ores.get('summary')}")
-    return JSONResponse(status_code=200, content={"status": ores.get("status"), "summary": ores.get("summary")})
+    return {"status": ores.get("status"), "summary": ores.get("summary")}
 
 
 class SecretBody(BaseModel):
