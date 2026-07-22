@@ -31,7 +31,17 @@ class Signal(BaseModel):
     @field_validator("price", "rsi", mode="before")
     @classmethod
     def _empty_to_none(cls, v):
-        # TVプレースホルダが置換されず空文字で来た場合に備える
-        if v is None or (isinstance(v, str) and v.strip() == ""):
+        # TVプレースホルダ({{plot_0}}等)が置換されず、空文字や非数値のまま
+        # 来た場合に備える。数値化できなければ None にして取引自体は通す
+        # （rsi/priceはおまけ情報。これのせいでWebhookを弾かないため）。
+        if v is None:
             return None
+        if isinstance(v, str):
+            s = v.strip().replace(",", "")
+            if s == "":
+                return None
+            try:
+                return float(s)
+            except ValueError:
+                return None
         return v
