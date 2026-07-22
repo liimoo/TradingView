@@ -35,7 +35,7 @@ services:
       - key: MARGIN_SYMBOLS
         sync: false # 信用(ロング+ショート)対象。空=無効。例 XRP/JPY,ETH/JPY。準備完了後にダッシュボードで設定
       - key: MAX_OPEN_POSITIONS
-        value: "3"
+        value: "5"
       - key: ORDER_COOLDOWN_SEC
         value: "60"
       - key: STOP_LOSS_PCT
