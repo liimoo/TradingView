@@ -348,6 +348,10 @@ def render_html(data: dict) -> str:
         if s.get("error"):
             parts.append(f"<p class='neg'>取得エラー: {esc(s['error'])}</p>")
             continue
+        # 取引ゼロの銘柄は1行だけにして見やすくする（全銘柄で体裁を揃える）
+        if not s.get("trades"):
+            parts.append("<div class='card'><span class='muted'>約定件数: 0（この銘柄はまだ取引なし）</span></div>")
+            continue
         parts.append("<div class='card'>")
         parts.append(f"約定件数: <b>{s['trades']}</b>　")
         parts.append(f"買い: {_yen(s['buy_cost'])} ({s['buy_base']:.4f})　")
@@ -372,20 +376,26 @@ def render_html(data: dict) -> str:
             parts.append(f"実現損益(概算): <b class='{cls}'>{_yen(net)}</b>")
         parts.append("</div>")
 
-        # 往復トレード台帳（買い→売りペア）
+        # 往復トレード台帳（買い→売りペア）。取引のある全銘柄で体裁を揃えて必ず表示
         rt = s.get("rt_summary") or {}
         rts = s.get("roundtrips") or []
-        if rt.get("count"):
+        cnt = rt.get("count") or 0
+        parts.append("<div class='card'>")
+        if cnt:
             tot = rt["total_pnl"]
             tcls = "pos" if tot >= 0 else "neg"
-            parts.append("<div class='card'>")
             parts.append(
-                f"往復トレード <b>{rt['count']}</b>回　勝ち {rt['wins']} / 負け {rt['losses']}　勝率 <b>{rt['win_rate']:.0f}%</b><br>"
+                f"往復トレード <b>{cnt}</b>回　勝ち {rt['wins']} / 負け {rt['losses']}　勝率 <b>{rt['win_rate']:.0f}%</b><br>"
             )
             parts.append(f"合計損益 <b class='{tcls}'>{_yen(tot)}</b>　1回平均 {_yen(rt['avg_pnl'])}")
-            if s.get("open_lots"):
-                parts.append(f"　<span class='muted'>(未決済 {s['open_lots']}件)</span>")
-            parts.append("</div>")
+        else:
+            parts.append(
+                "往復トレード <b>0</b>回　"
+                "<span class='muted'>（買い→売りで決済が完了した往復はまだありません）</span>"
+            )
+        if s.get("open_lots"):
+            parts.append(f"　<span class='muted'>(未決済 {s['open_lots']}件)</span>")
+        parts.append("</div>")
         if rts:
             parts.append(
                 "<table><tr><th>#</th><th class='l'>エントリー(JST)</th><th>取得単価</th><th>取得RSI</th>"
