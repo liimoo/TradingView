@@ -297,3 +297,33 @@ def test_tax_realized_flip():
     events = _realized_events(trades)
     assert len(events) == 2
     assert round(sum(e["pnl"] for e in events), 6) == 30.0
+
+
+def test_roundtrips_short():
+    from app.report import _build_roundtrips
+
+    # 売建100→買戻80 = ショート往復 +20
+    trades = [
+        {"side": "sell", "amount": 1, "price": 100, "timestamp": 1000, "order": "s1"},
+        {"side": "buy", "amount": 1, "price": 80, "timestamp": 2000, "order": "b1"},
+    ]
+    rts, open_lots = _build_roundtrips(trades, {})
+    assert len(rts) == 1 and open_lots == []
+    assert rts[0]["side"] == "short"
+    assert round(rts[0]["pnl"], 6) == 20.0
+    assert round(rts[0]["pnl_pct"], 4) == 20.0  # 100→80で+20%
+
+
+def test_roundtrips_flip():
+    from app.report import _build_roundtrips
+
+    # ショート決済(+20)→ドテンでロング、決済(+10)。ロング/ショート両方の往復が出る
+    trades = [
+        {"side": "sell", "amount": 1, "price": 100, "timestamp": 1000},
+        {"side": "buy", "amount": 2, "price": 80, "timestamp": 2000},
+        {"side": "sell", "amount": 1, "price": 90, "timestamp": 3000},
+    ]
+    rts, open_lots = _build_roundtrips(trades, {})
+    assert len(rts) == 2 and open_lots == []
+    assert rts[0]["side"] == "short" and round(rts[0]["pnl"], 6) == 20.0
+    assert rts[1]["side"] == "long" and round(rts[1]["pnl"], 6) == 10.0

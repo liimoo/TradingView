@@ -135,44 +135,55 @@ def _fmt_hold(sec) -> str:
 
 
 def _build_roundtrips(trades: list, reason_map: dict, rsi_map: dict | None = None) -> tuple[list, list]:
-    """約定を買い→売りでFIFOペアリングし、往復（クローズ済み）と未決済lotを返す。"""
+    """約定をFIFOでペアリングし、往復（クローズ済み）と未決済lotを返す。
+
+    ロング(買い→売り)・ショート(売り→買い)の両方に対応。未決済lotは全て同じ方向を持ち、
+    反対売買が来ると古いlotから決済していく（余りが出ればドテンして新規建て）。
+    """
     rsi_map = rsi_map or {}
     trades = sorted(trades, key=lambda t: t.get("timestamp") or 0)
-    lots: list[dict] = []  # 未決済の買いlot（FIFO）
+    lots: list[dict] = []  # 未決済lot。dir: +1ロング / -1ショート
     rts: list[dict] = []
     for t in trades:
         side = t.get("side")
         amt = float(t.get("amount") or 0)
         price = float(t.get("price") or 0)
         ts = t.get("timestamp")
-        if amt <= 0:
+        if amt <= 0 or price <= 0:
             continue
-        if side == "buy":
-            lots.append({"qty": amt, "price": price, "time": ts, "order": t.get("order")})
-        elif side == "sell":
-            remaining = amt
-            reason = reason_map.get(str(t.get("order"))) if t.get("order") is not None else None
-            while remaining > 1e-12 and lots:
-                lot = lots[0]
-                m = min(remaining, lot["qty"])
-                rts.append(
-                    {
-                        "entry_ts": lot["time"],
-                        "entry_price": lot["price"],
-                        "entry_rsi": rsi_map.get(str(lot.get("order"))),
-                        "exit_ts": ts,
-                        "exit_price": price,
-                        "qty": m,
-                        "pnl": (price - lot["price"]) * m,
-                        "pnl_pct": ((price / lot["price"] - 1) * 100) if lot["price"] else 0.0,
-                        "hold_sec": ((ts - lot["time"]) / 1000) if (ts and lot["time"]) else None,
-                        "reason": reason,
-                    }
-                )
-                lot["qty"] -= m
-                remaining -= m
-                if lot["qty"] <= 1e-12:
-                    lots.pop(0)
+        tdir = 1 if side == "buy" else -1  # 約定の方向
+        remaining = amt
+        reason = reason_map.get(str(t.get("order"))) if t.get("order") is not None else None
+        # 反対方向のlotがあれば決済（FIFOペアリング）
+        while remaining > 1e-12 and lots and lots[0]["dir"] != tdir:
+            lot = lots[0]
+            m = min(remaining, lot["qty"])
+            ldir = lot["dir"]  # 建玉の方向（ロング/ショート）
+            # ロング: (決済-取得)*数量 / ショート: (取得-決済)*数量 → *ldir で統一
+            pnl = (price - lot["price"]) * m * ldir
+            pnl_pct = ((price / lot["price"] - 1) * 100 * ldir) if lot["price"] else 0.0
+            rts.append(
+                {
+                    "side": "long" if ldir == 1 else "short",
+                    "entry_ts": lot["time"],
+                    "entry_price": lot["price"],
+                    "entry_rsi": rsi_map.get(str(lot.get("order"))),
+                    "exit_ts": ts,
+                    "exit_price": price,
+                    "qty": m,
+                    "pnl": pnl,
+                    "pnl_pct": pnl_pct,
+                    "hold_sec": ((ts - lot["time"]) / 1000) if (ts and lot["time"]) else None,
+                    "reason": reason,
+                }
+            )
+            lot["qty"] -= m
+            remaining -= m
+            if lot["qty"] <= 1e-12:
+                lots.pop(0)
+        # 残り（同方向 or 決済しきった後のドテン）は新規建てとしてlotに積む
+        if remaining > 1e-12:
+            lots.append({"dir": tdir, "qty": remaining, "price": price, "time": ts, "order": t.get("order")})
     return rts, lots
 
 
@@ -391,22 +402,23 @@ def render_html(data: dict) -> str:
         else:
             parts.append(
                 "往復トレード <b>0</b>回　"
-                "<span class='muted'>（買い→売りで決済が完了した往復はまだありません）</span>"
+                "<span class='muted'>（決済が完了した往復はまだありません）</span>"
             )
         if s.get("open_lots"):
             parts.append(f"　<span class='muted'>(未決済 {s['open_lots']}件)</span>")
         parts.append("</div>")
         if rts:
             parts.append(
-                "<table><tr><th>#</th><th class='l'>エントリー(JST)</th><th>取得単価</th><th>取得RSI</th>"
+                "<table><tr><th>#</th><th class='l'>方向</th><th class='l'>エントリー(JST)</th><th>取得単価</th><th>取得RSI</th>"
                 "<th class='l'>決済(JST)</th><th>決済単価</th><th>数量</th><th>損益</th><th>損益%</th><th>保有</th><th class='l'>理由</th></tr>"
             )
             total = len(rts)
             for idx, r in enumerate(reversed(rts)):
                 num = total - idx
                 pcls = "pos" if r["pnl"] >= 0 else "neg"
+                side_jp = "ロング🟩" if r.get("side") == "long" else "ショート🟦"
                 parts.append(
-                    f"<tr><td>{num}</td>"
+                    f"<tr><td>{num}</td><td class='l'>{side_jp}</td>"
                     f"<td class='l'>{esc(_fmt_ts(r['entry_ts'], True) if r['entry_ts'] else '')}</td><td>{r['entry_price']}</td>"
                     f"<td>{r['entry_rsi'] if r.get('entry_rsi') is not None else '-'}</td>"
                     f"<td class='l'>{esc(_fmt_ts(r['exit_ts'], True) if r['exit_ts'] else '')}</td><td>{r['exit_price']}</td>"
