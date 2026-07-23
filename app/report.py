@@ -447,3 +447,221 @@ def render_html(data: dict) -> str:
 
     parts.append("</body></html>")
     return "".join(parts)
+
+
+# ============================================================
+# 年間損益サマリー（確定申告の“把握・目安”用。税務アドバイスではない）
+# ============================================================
+
+def _ts_year(ts) -> int | None:
+    """ミリ秒タイムスタンプ→JSTの暦年。"""
+    if not ts:
+        return None
+    try:
+        return datetime.fromtimestamp(ts / 1000, JST).year
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _realized_events(trades: list) -> list:
+    """符号付きポジションを時系列で追跡し、決済(ポジション減少)ごとに実現損益を返す。
+
+    ロング(買い→売り)・ショート(売り→買い)の両方に対応した移動平均法ベースの概算。
+    各イベント: {ts, pnl, qty}。pnlは手数料を含まない値差益（手数料は別途集計）。
+    """
+    trades = sorted(trades, key=lambda t: t.get("timestamp") or 0)
+    pos = 0.0   # +ロング / −ショート の符号付き数量
+    avg = 0.0   # 平均取得(売建)単価
+    events: list[dict] = []
+    for t in trades:
+        amt = float(t.get("amount") or 0)
+        price = float(t.get("price") or 0)
+        ts = t.get("timestamp")
+        if amt <= 0 or price <= 0:
+            continue
+        signed = amt if t.get("side") == "buy" else -amt
+        while abs(signed) > 1e-12:
+            if pos == 0 or (pos > 0) == (signed > 0):
+                # 同方向 → 建て増し（平均単価を更新）
+                new_abs = abs(pos) + abs(signed)
+                avg = (avg * abs(pos) + price * abs(signed)) / new_abs
+                pos += signed
+                signed = 0.0
+            else:
+                # 反対方向 → 決済（実現損益を確定）
+                closing = min(abs(signed), abs(pos))
+                direction = 1.0 if pos > 0 else -1.0
+                pnl = (price - avg) * closing * direction
+                events.append({"ts": ts, "pnl": pnl, "qty": closing})
+                pos -= direction * closing
+                signed += direction * closing
+                if abs(pos) < 1e-12:
+                    pos = 0.0
+                    avg = 0.0
+                # signed が残っていればループ継続＝ドテン（残りは新規建て）
+    return events
+
+
+def build_tax_summary(year: int | None = None) -> dict:
+    """暦年(1〜12月)の実現損益をJPYで集計する。確定申告の把握・目安用。"""
+    now = datetime.now(JST)
+    year = year or now.year
+    out: dict = {
+        "mode": settings.trading_mode,
+        "year": year,
+        "generated": now.strftime("%Y-%m-%d %H:%M:%S JST"),
+        "symbols": {},
+        "total_realized": 0.0,
+        "total_fee": 0.0,
+        "closes": 0,
+    }
+    if not broker.has_exchange:
+        out["note"] = "取引所へ接続できません（DRY_RUNで鍵未設定など）。集計不可。"
+        return out
+    for sym in settings.allowed_symbols:
+        try:
+            trades = broker.my_trades(sym, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            out["symbols"][sym] = {"error": f"{type(exc).__name__}: {exc}"}
+            continue
+        events = _realized_events(trades)
+        realized = sum(e["pnl"] for e in events if _ts_year(e["ts"]) == year)
+        closes = sum(1 for e in events if _ts_year(e["ts"]) == year)
+        fee_jpy = 0.0
+        trades_in_year = 0
+        for t in trades:
+            if _ts_year(t.get("timestamp")) != year:
+                continue
+            trades_in_year += 1
+            fee = t.get("fee") or {}
+            if fee.get("currency") == "JPY":
+                fee_jpy += float(fee.get("cost") or 0)
+        out["symbols"][sym] = {
+            "realized": realized,
+            "fee": fee_jpy,
+            "closes": closes,
+            "trades": trades_in_year,
+        }
+        out["total_realized"] += realized
+        out["total_fee"] += fee_jpy
+        out["closes"] += closes
+    out["net_estimate"] = out["total_realized"] - out["total_fee"]
+    return out
+
+
+# 日本の暗号資産税の基礎（一般情報。税務アドバイスではない）
+TAX_NOTES = [
+    "暗号資産の利益は原則「雑所得」＝総合課税（給与などと合算、所得税率5〜45%＋住民税約10%）。",
+    "重要：暗号資産の信用（証拠金）取引は、FXと違い申告分離ではなく総合課税の雑所得扱い。",
+    "給与所得者は、暗号資産などの利益が年20万円を超えると確定申告が必要（他の条件もあり）。",
+    "課税のタイミングは「売った時・別の通貨に換えた時」などの実現時。含み益は対象外。",
+    "計算方法は総平均法（個人の既定）または移動平均法（届出が必要）。",
+]
+
+
+def build_tax_csv(data: dict) -> str:
+    """年間損益サマリーをCSV文字列で返す（税理士・税務ソフトへの受け渡し用）。"""
+    lines = ["symbol,realized_pnl_jpy,fee_jpy,net_jpy,closes,trades"]
+    for sym, s in (data.get("symbols") or {}).items():
+        if s.get("error"):
+            lines.append(f"{sym},ERROR,,,,")
+            continue
+        r = s.get("realized", 0.0)
+        f = s.get("fee", 0.0)
+        lines.append(f"{sym},{r:.2f},{f:.2f},{r - f:.2f},{s.get('closes', 0)},{s.get('trades', 0)}")
+    tr = data.get("total_realized", 0.0)
+    tf = data.get("total_fee", 0.0)
+    lines.append(f"TOTAL,{tr:.2f},{tf:.2f},{tr - tf:.2f},{data.get('closes', 0)},")
+    return "\n".join(lines) + "\n"
+
+
+def render_tax_html(data: dict, secret: str = "") -> str:
+    esc = html.escape
+    parts = [
+        "<!doctype html><html lang='ja'><head><meta charset='utf-8'>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>",
+        "<title>年間損益サマリー</title><style>",
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;margin:1.2rem;color:#111;background:#fafafa}",
+        "h1{font-size:1.3rem}h2{font-size:1.05rem;margin-top:1.4rem}",
+        "table{border-collapse:collapse;width:100%;margin:.4rem 0;font-size:.9rem;background:#fff}",
+        "th,td{border:1px solid #ddd;padding:.4rem .6rem;text-align:right}th{background:#f0f0f0}",
+        "td.l,th.l{text-align:left}.pos{color:#0a0}.neg{color:#c00}.muted{color:#888}",
+        ".card{background:#fff;border:1px solid #e2e2e2;border-radius:8px;padding:.9rem 1.1rem;margin:.6rem 0}",
+        ".big{font-size:1.6rem;font-weight:700}.warn{background:#fff7e6;border:1px solid #ffd591}",
+        ".tot{background:#f6ffed;border:1px solid #b7eb8f}",
+        "a.btn{display:inline-block;margin:.3rem 0;padding:.4rem .8rem;background:#1677ff;color:#fff;border-radius:6px;text-decoration:none;font-size:.85rem}",
+        "</style></head><body>",
+        f"<h1>年間損益サマリー <span class='muted'>{esc(str(data.get('year','')))}年 ({esc(data.get('mode',''))})</span></h1>",
+        f"<p class='muted'>生成: {esc(data.get('generated',''))}</p>",
+    ]
+    if data.get("note"):
+        parts.append(f"<div class='card'>{esc(data['note'])}</div>")
+
+    # 免責（最重要）
+    parts.append(
+        "<div class='card warn'><b>⚠️ これは把握・目安用の概算です。確定申告そのものには使えません。</b><br>"
+        "<span class='muted'>移動平均ベースの概算で、手数料・金利の一部や取引所外の入出金・報酬は含みません。"
+        "正確な申告は国税庁の案内・税理士、または暗号資産専用の税計算サービス(Cryptact等)をご利用ください。</span></div>"
+    )
+
+    tr = data.get("total_realized", 0.0)
+    tf = data.get("total_fee", 0.0)
+    net = data.get("net_estimate", tr - tf)
+    ncls = "pos" if net >= 0 else "neg"
+    parts.append("<div class='card tot'>")
+    parts.append(f"<div>{esc(str(data.get('year','')))}年の実現損益（概算）</div>")
+    parts.append(f"<div class='big {ncls}'>{_yen(net)}</div>")
+    parts.append(
+        f"<div class='muted'>値差益 {_yen(tr)} − 手数料 {_yen(tf)}　/　決済回数 {data.get('closes',0)}</div>"
+    )
+    parts.append("</div>")
+
+    # 20万円ラインの目安
+    if net > 200000:
+        parts.append(
+            "<div class='card warn'>実現損益が <b>20万円</b> を超えています。給与所得者の場合、"
+            "確定申告が必要になる可能性が高いです（他の所得と合わせて要確認）。</div>"
+        )
+    elif net > 0:
+        parts.append(
+            "<div class='card'><span class='muted'>実現損益は20万円以下です。給与所得者なら申告不要のケースもありますが、"
+            "住民税の申告や他の副収入との合算など条件次第です。必ずご自身で確認を。</span></div>"
+        )
+
+    if secret:
+        parts.append(f"<a class='btn' href='/tax?secret={esc(secret)}&format=csv'>CSVをダウンロード</a>")
+
+    # 銘柄別
+    parts.append("<h2>銘柄別の内訳</h2>")
+    parts.append(
+        "<table><tr><th class='l'>銘柄</th><th>実現損益</th><th>手数料</th><th>差引</th><th>決済回数</th><th>約定数</th></tr>"
+    )
+    for sym, s in (data.get("symbols") or {}).items():
+        if s.get("error"):
+            parts.append(f"<tr><td class='l'>{esc(sym)}</td><td class='neg' colspan='5'>{esc(s['error'])}</td></tr>")
+            continue
+        r = s.get("realized", 0.0)
+        f = s.get("fee", 0.0)
+        n = r - f
+        rc = "pos" if r >= 0 else "neg"
+        nc = "pos" if n >= 0 else "neg"
+        parts.append(
+            f"<tr><td class='l'>{esc(sym)}</td>"
+            f"<td class='{rc}'>{_yen(r)}</td><td>{_yen(f)}</td>"
+            f"<td class='{nc}'>{_yen(n)}</td>"
+            f"<td>{s.get('closes',0)}</td><td>{s.get('trades',0)}</td></tr>"
+        )
+    parts.append("</table>")
+
+    # 税の基礎知識
+    parts.append("<h2>日本の暗号資産税の基礎（一般情報・要確認）</h2>")
+    parts.append(
+        "<div class='card'><p class='muted' style='margin-top:0'>※以下は一般的な内容です。"
+        "最新・正確な扱いは国税庁の案内か税理士でご確認ください。</p><ul>"
+    )
+    for note in TAX_NOTES:
+        parts.append(f"<li>{esc(note)}</li>")
+    parts.append("</ul></div>")
+
+    parts.append("</body></html>")
+    return "".join(parts)

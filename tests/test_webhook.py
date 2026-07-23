@@ -261,3 +261,39 @@ def test_roundtrips_open_lot():
     trades = [{"side": "buy", "amount": 1, "price": 100, "timestamp": 1000}]
     rts, open_lots = _build_roundtrips(trades, {})
     assert rts == [] and len(open_lots) == 1
+
+
+def test_tax_realized_long():
+    from app.report import _realized_events
+
+    # 100で買い→120で売り = +20（ロング）
+    trades = [
+        {"side": "buy", "amount": 1, "price": 100, "timestamp": 1000},
+        {"side": "sell", "amount": 1, "price": 120, "timestamp": 2000},
+    ]
+    assert round(sum(e["pnl"] for e in _realized_events(trades)), 6) == 20.0
+
+
+def test_tax_realized_short():
+    from app.report import _realized_events
+
+    # 100で売建→80で買戻 = +20（ショート）
+    trades = [
+        {"side": "sell", "amount": 1, "price": 100, "timestamp": 1000},
+        {"side": "buy", "amount": 1, "price": 80, "timestamp": 2000},
+    ]
+    assert round(sum(e["pnl"] for e in _realized_events(trades)), 6) == 20.0
+
+
+def test_tax_realized_flip():
+    from app.report import _realized_events
+
+    # ロング決済(+20)後にドテンショート、買戻で(+10)。合計+30、決済2回
+    trades = [
+        {"side": "buy", "amount": 1, "price": 100, "timestamp": 1000},
+        {"side": "sell", "amount": 2, "price": 120, "timestamp": 2000},
+        {"side": "buy", "amount": 1, "price": 110, "timestamp": 3000},
+    ]
+    events = _realized_events(trades)
+    assert len(events) == 2
+    assert round(sum(e["pnl"] for e in events), 6) == 30.0

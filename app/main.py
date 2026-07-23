@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ValidationError
 
 from . import journal, monitor
@@ -21,7 +21,15 @@ from .broker import broker
 from .config import settings, sized_quote
 from .models import Signal
 from .notifier import notify
-from .report import build_positions, build_report, render_html, render_positions_html
+from .report import (
+    build_positions,
+    build_report,
+    build_tax_csv,
+    build_tax_summary,
+    render_html,
+    render_positions_html,
+    render_tax_html,
+)
 from .risk import risk_manager, within_trading_hours
 from .security import verify_secret
 
@@ -130,6 +138,25 @@ async def positions_endpoint(secret: str = "", format: str = "html"):
     return HTMLResponse(render_positions_html(data))
 
 
+@app.get("/tax")
+async def tax_endpoint(secret: str = "", format: str = "html", year: int = 0):
+    """年間損益サマリー（確定申告の把握・目安用）。?format=json / ?format=csv も可。?year=2026 で年指定。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    data = await asyncio.to_thread(build_tax_summary, year or None)
+    if format == "json":
+        return JSONResponse(data)
+    if format == "csv":
+        csv = build_tax_csv(data)
+        fname = f"tax_{data.get('year','')}.csv"
+        return PlainTextResponse(
+            csv,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename={fname}"},
+        )
+    return HTMLResponse(render_tax_html(data, secret))
+
+
 def _render_panel(secret: str) -> str:
     tmpl = """<!doctype html><html lang='ja'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
@@ -151,7 +178,8 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
 <div class='card'>
   <div class='muted'>詳しく見る・設定</div>
   <a href='/report?secret=__S__' target='_blank'>📊 損益レポート</a> ／
-  <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a><br>
+  <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a> ／
+  <a href='/tax?secret=__S__' target='_blank'>🧾 年間損益(税金の目安)</a><br>
   <a href='/config?secret=__S__' target='_blank'>⚙️ パラメーター調整</a> ／
   <a href='/guide' target='_blank'>📖 通知の見方</a> ／
   <a href='/health' target='_blank'>🩺 稼働状況</a>
