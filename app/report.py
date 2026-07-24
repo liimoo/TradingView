@@ -40,12 +40,17 @@ def build_positions() -> dict:
                 px = broker.ticker(sym)
             except Exception:  # noqa: BLE001
                 px = None
-        upnl = None
+        upnl = upnl_pct = None
         if px and p.entry_price:
             sign = 1 if p.side == "long" else -1
             upnl = sign * (px - p.entry_price) * (p.base_qty or 0)
+            # 含み損益率＝取得単価に対する騰落率（ショートは値下がりが+）
+            upnl_pct = sign * (px / p.entry_price - 1) * 100
         out["positions"].append(
-            {"symbol": sym, "side": p.side, "base": p.base_qty, "entry": p.entry_price, "price": px, "upnl": upnl}
+            {
+                "symbol": sym, "side": p.side, "base": p.base_qty, "entry": p.entry_price,
+                "price": px, "upnl": upnl, "upnl_pct": upnl_pct,
+            }
         )
     if broker.has_exchange:
         try:
@@ -85,16 +90,19 @@ def render_positions_html(data: dict) -> str:
     else:
         parts.append(
             "<table><tr><th class='l'>銘柄</th><th class='l'>方向</th><th>数量</th><th>取得単価</th>"
-            "<th>現在値</th><th>含み損益</th></tr>"
+            "<th>現在値</th><th>含み損益</th><th>含み損益率</th></tr>"
         )
         for p in poss:
             side = "ロング🟩" if p["side"] == "long" else "ショート🟦"
             up = p.get("upnl")
-            upcell = "-" if up is None else f"<span class='{'pos' if up>=0 else 'neg'}'>{_yen(up)}</span>"
+            pct = p.get("upnl_pct")
+            cls = "pos" if (up or 0) >= 0 else "neg"
+            upcell = "-" if up is None else f"<span class='{cls}'>{_yen(up)}</span>"
+            pctcell = "-" if pct is None else f"<span class='{cls}'>{pct:+.2f}%</span>"
             parts.append(
                 f"<tr><td class='l'>{esc(p['symbol'])}</td><td class='l'>{side}</td>"
                 f"<td>{p['base']}</td><td>{p['entry']}</td><td>{p.get('price') if p.get('price') is not None else '-'}</td>"
-                f"<td>{upcell}</td></tr>"
+                f"<td>{upcell}</td><td>{pctcell}</td></tr>"
             )
         parts.append("</table><p class='muted'>※含み損益は概算（現在値ベース）。手数料・金利は含みません</p>")
 

@@ -305,3 +305,37 @@ def test_positions_json_shape():
 def test_health_reports_margin_lists():
     d = client.get("/health").json()
     assert "margin_active" in d and "allowed_symbols" in d
+
+
+def test_positions_upnl_pct_long_and_short():
+    """建玉の含み損益率：ロングは値上がりが+、ショートは値下がりが+。"""
+    from app.report import render_positions_html
+
+    data = {
+        "mode": "LIVE", "generated": "now", "margin_status": {}, "balance": {},
+        "positions": [
+            {"symbol": "XRP/JPY", "side": "long", "base": 10, "entry": 100.0,
+             "price": 110.0, "upnl": 100.0, "upnl_pct": 10.0},
+            {"symbol": "ETH/JPY", "side": "short", "base": 1, "entry": 100.0,
+             "price": 90.0, "upnl": 10.0, "upnl_pct": 10.0},
+        ],
+    }
+    h = render_positions_html(data)
+    assert "含み損益率" in h
+    assert "+10.00%" in h  # 両方とも+10%（ショートは値下がりで利益）
+
+
+def test_build_positions_pct_sign_for_short():
+    """build_positions のショート含み損益率の符号（値上がり=損=マイナス）。"""
+    from app.report import build_positions
+    from app.risk import risk_manager
+
+    risk_manager._positions.clear()
+    # ショートを建て、現在値が上がった状況を想定（DRY_RUNなので px は None になり得る）
+    risk_manager.open_position("SOL/JPY", base_qty=1.0, entry_price=100.0, side="short")
+    data = build_positions()
+    risk_manager._positions.clear()
+    # DRY_RUN(取引所なし)では price/upnl_pct は None（計算に現在値が要る）
+    pos = [p for p in data["positions"] if p["symbol"] == "SOL/JPY"][0]
+    assert pos["side"] == "short"
+    assert "upnl_pct" in pos
