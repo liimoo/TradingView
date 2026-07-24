@@ -163,6 +163,26 @@ async def _reconcile_stop(sym, pos) -> str:
     return "open"
 
 
+def margin_exit_decision(side: str, entry: float, px: float, sl: float, tp: float):
+    """信用建玉の損切り/利確を判定し (reason, emoji, label) を返す。該当なしは None。
+
+    ロング: 値下がりが損・値上がりが益。ショート: 値上がりが損・値下がりが益（反転）。
+    """
+    if not entry or entry <= 0 or not px or px <= 0:
+        return None
+    if side == "long":
+        if sl > 0 and px <= entry * (1 - sl):
+            return ("stop_loss", "😖", f"損切り(-{sl*100:.1f}%)")
+        if tp > 0 and px >= entry * (1 + tp):
+            return ("take_profit", "💰", f"利確(+{tp*100:.1f}%)")
+    else:  # short
+        if sl > 0 and px >= entry * (1 + sl):
+            return ("stop_loss", "😖", f"損切り(+{sl*100:.1f}%上昇)")
+        if tp > 0 and px <= entry * (1 - tp):
+            return ("take_profit", "💰", f"利確(-{tp*100:.1f}%下落)")
+    return None
+
+
 async def _handle_margin_exit(sym, pos, sl: float, tp: float) -> None:
     """信用建玉(ロング/ショート)の損切り/利確をサーバ監視で判定し成行決済する。"""
     try:
@@ -172,19 +192,10 @@ async def _handle_margin_exit(sym, pos, sl: float, tp: float) -> None:
     entry = pos.entry_price
     if not entry or entry <= 0:
         return
-    reason = emoji = label = None
-    if pos.side == "long":
-        if sl > 0 and px <= entry * (1 - sl):
-            reason, emoji, label = "stop_loss", "😖", f"損切り(-{sl*100:.1f}%)"
-        elif tp > 0 and px >= entry * (1 + tp):
-            reason, emoji, label = "take_profit", "💰", f"利確(+{tp*100:.1f}%)"
-    else:  # short: 値上がりが損、値下がりが利益
-        if sl > 0 and px >= entry * (1 + sl):
-            reason, emoji, label = "stop_loss", "😖", f"損切り(+{sl*100:.1f}%上昇)"
-        elif tp > 0 and px <= entry * (1 - tp):
-            reason, emoji, label = "take_profit", "💰", f"利確(-{tp*100:.1f}%下落)"
-    if reason is None:
+    decision = margin_exit_decision(pos.side, entry, px, sl, tp)
+    if decision is None:
         return
+    reason, emoji, label = decision
     try:
         if pos.side == "long":  # ロングは現物で売り決済
             cres = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px)
