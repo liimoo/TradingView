@@ -311,6 +311,15 @@ def _yen(v) -> str:
         return str(v)
 
 
+def _fmt_num(v) -> str:
+    """30.0→"30" のように、整数なら小数点を省いて表示する。"""
+    try:
+        f = float(v)
+        return str(int(f)) if f == int(f) else f"{f:g}"
+    except Exception:  # noqa: BLE001
+        return str(v)
+
+
 def render_html(data: dict) -> str:
     esc = html.escape
     parts = [
@@ -416,17 +425,25 @@ def render_html(data: dict) -> str:
             parts.append(f"　<span class='muted'>(未決済 {s['open_lots']}件)</span>")
         parts.append("</div>")
         if rts:
+            os_th = _fmt_num(settings.rsi_oversold)
+            ob_th = _fmt_num(settings.rsi_overbought)
             parts.append(
-                "<table><tr><th>#</th><th class='l'>方向</th><th class='l'>エントリー(JST)</th><th>取得単価</th><th>取得RSI</th>"
+                "<table><tr><th>#</th><th class='l'>方向</th><th class='l'>判定(RSI)</th>"
+                "<th class='l'>エントリー(JST)</th><th>取得単価</th><th>取得RSI</th>"
                 "<th class='l'>決済(JST)</th><th>決済単価</th><th>数量</th><th>損益</th><th>損益%</th><th>保有</th><th class='l'>理由</th></tr>"
             )
             total = len(rts)
             for idx, r in enumerate(reversed(rts)):
                 num = total - idx
                 pcls = "pos" if r["pnl"] >= 0 else "neg"
-                side_jp = "ロング🟩" if r.get("side") == "long" else "ショート🟦"
+                is_long = r.get("side") == "long"
+                side_jp = "ロング🟩" if is_long else "ショート🟦"
+                # 判定根拠: ロングは 買RSI≤30→売RSI≥70 / ショートは 売RSI≥70→買RSI≤30
+                judge = (
+                    f"買 ≤{os_th} → 売 ≥{ob_th}" if is_long else f"売 ≥{ob_th} → 買 ≤{os_th}"
+                )
                 parts.append(
-                    f"<tr><td>{num}</td><td class='l'>{side_jp}</td>"
+                    f"<tr><td>{num}</td><td class='l'>{side_jp}</td><td class='l muted'>{judge}</td>"
                     f"<td class='l'>{esc(_fmt_ts(r['entry_ts'], True) if r['entry_ts'] else '')}</td><td>{r['entry_price']}</td>"
                     f"<td>{r['entry_rsi'] if r.get('entry_rsi') is not None else '-'}</td>"
                     f"<td class='l'>{esc(_fmt_ts(r['exit_ts'], True) if r['exit_ts'] else '')}</td><td>{r['exit_price']}</td>"

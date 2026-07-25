@@ -78,6 +78,9 @@ class Settings:
     stop_loss_pct: float = field(default_factory=lambda: float(_get("STOP_LOSS_PCT", "0")))
     # 利確: 取得単価から この割合 上昇したら自動で成行決済（0=無効）。例 0.05 = 5%
     take_profit_pct: float = field(default_factory=lambda: float(_get("TAKE_PROFIT_PCT", "0")))
+    # RSIの判定閾値（TradingView側のアラート設定と一致させる。レポート表示・記録用）。
+    rsi_oversold: float = field(default_factory=lambda: float(_get("RSI_OVERSOLD", "30")))
+    rsi_overbought: float = field(default_factory=lambda: float(_get("RSI_OVERBOUGHT", "70")))
     # 価格監視ループの間隔（秒）
     monitor_interval_sec: int = field(default_factory=lambda: int(_get("MONITOR_INTERVAL_SEC", "60")))
     # Webhookを同期処理するか（テスト用。本番はFalse=即200返してバックグラウンド処理）
