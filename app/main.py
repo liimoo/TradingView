@@ -88,6 +88,8 @@ async def health() -> dict:
         },
         "stop_loss_pct": settings.stop_loss_pct,
         "take_profit_pct": settings.take_profit_pct,
+        "order_entry_type": settings.order_entry_type,  # market/limit(maker)
+        "maker_wait_sec": settings.maker_wait_sec,
         "order_size_pct": settings.order_size_pct,
         "order_quote_amount": settings.order_quote_amount,
         "day_pnl": round(risk_manager.day_pnl, 2),
