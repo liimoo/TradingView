@@ -38,6 +38,14 @@ services:
         value: "8"
       - key: ORDER_COOLDOWN_SEC
         value: "60"
+      - key: ORDER_ENTRY_TYPE
+        value: "limit" # エントリー/サイン決済は指値(maker,手数料節約)。損切り等の安全決済は常に成行
+      - key: MAKER_WAIT_SEC
+        value: "25" # 指値が約定しなければこの秒数で成行に切替（取り逃さない）
+      - key: RSI_OVERSOLD
+        value: "30" # 買い判定のRSI閾値（TradingViewのアラートと一致させる。レポート表示用）
+      - key: RSI_OVERBOUGHT
+        value: "70" # 売り判定のRSI閾値（同上）
       - key: STOP_LOSS_PCT
         value: "0.05" # 取得単価から5%下落で自動損切り（ダッシュボードで調整可）
       - key: TAKE_PROFIT_PCT

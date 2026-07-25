@@ -103,7 +103,7 @@ async def reconstruct_positions() -> None:
 async def _do_market_close(sym, pos, px, reason, emoji, label) -> None:
     """成行で建玉を決済し、記録・通知する。"""
     try:
-        res = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px)
+        res = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px, True)  # 安全決済は成行
         if pos.entry_price:
             risk_manager.record_close((px - pos.entry_price) * (pos.base_qty or 0))
         risk_manager.close_position(sym)
@@ -198,9 +198,9 @@ async def _handle_margin_exit(sym, pos, sl: float, tp: float) -> None:
     reason, emoji, label = decision
     try:
         if pos.side == "long":  # ロングは現物で売り決済
-            cres = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px)
+            cres = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px, True)  # 安全決済は成行
         else:  # ショートは信用で買い戻し
-            cres = await asyncio.to_thread(broker.margin_order, sym, "buy", pos.base_qty, "short", px)
+            cres = await asyncio.to_thread(broker.margin_order, sym, "buy", pos.base_qty, "short", px, True)
         sign = 1 if pos.side == "long" else -1
         risk_manager.record_close(sign * (px - entry) * (pos.base_qty or 0))
         risk_manager.close_position(sym)

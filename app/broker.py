@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any, Optional
 
 from .config import settings
@@ -114,14 +115,17 @@ class Broker:
 
     # ---------- 信用取引（ロング/ショート） ----------
     def margin_order(self, symbol: str, side: str, base_amount: float, position_side: str,
-                     price: Optional[float] = None) -> "OrderResult":
-        """信用の成行注文。side=buy/sell, position_side=long/short。
-        建て: (long,buy) / (short,sell)。決済: (long,sell) / (short,buy)。"""
+                     price: Optional[float] = None, force_market: bool = False) -> "OrderResult":
+        """信用の注文。side=buy/sell, position_side=long/short。
+        建て: (long,buy) / (short,sell)。決済: (long,sell) / (short,buy)。
+        order_entry_type=limit かつ force_market=False なら指値(maker)→未約定は成行。"""
         if self.mode == "DRY_RUN" or self._exchange is None:
             summary = f"[DRY_RUN] 信用 {position_side} {side} {symbol} 数量≈{base_amount}"
             logger.info(summary)
             return OrderResult(status="dry_run", summary=summary, filled_base=base_amount, filled_price=price, order=None)
         ex = self._exchange
+        if self._use_limit(force_market):
+            return self._limit_then_market(symbol, side, base_amount, {"position_side": position_side})
         with self._lock:
             amount = float(ex.amount_to_precision(symbol, base_amount))
             order = ex.create_order(symbol, "market", side, amount, None, {"position_side": position_side})
@@ -162,8 +166,89 @@ class Broker:
             raise ValueError("価格が取得できず数量を計算できません")
         return px
 
+    # ---------- 指値(maker)→未約定なら成行フォールバック ----------
+    def _limit_then_market(self, symbol: str, side: str, amount: float, extra: dict | None = None) -> OrderResult:
+        """指値(maker)で発注し、maker_wait_sec 以内に約定しなければ残りを成行で約定する。
+
+        待機中は self._lock を保持しない（損切り監視など他の取引所アクセスを妨げないため）。
+        どこかで例外が出たら必ず成行にフォールバックし、指値のせいで取引を止めない。
+        """
+        ex = self._exchange
+        extra = dict(extra or {})
+        amount = float(ex.amount_to_precision(symbol, amount))
+        wait = max(1, int(settings.maker_wait_sec))
+        try:
+            with self._lock:
+                ob = ex.fetch_order_book(symbol, 5)
+            bids = ob.get("bids") or []
+            asks = ob.get("asks") or []
+            # maker になる価格＝買いは最良買い気配、売りは最良売り気配（板の先頭に並ぶ）
+            top = (bids[0][0] if side == "buy" else asks[0][0])
+            limit_price = float(ex.price_to_precision(symbol, top))
+            params = {**extra, "post_only": True}
+            with self._lock:
+                order = ex.create_order(symbol, "limit", side, amount, limit_price, params)
+            oid = order.get("id")
+            last = order
+            deadline = time.monotonic() + wait
+            while time.monotonic() < deadline:
+                time.sleep(2)
+                with self._lock:
+                    last = ex.fetch_order(oid, symbol)
+                if last.get("status") in ("closed", "filled") or float(last.get("filled") or 0) >= amount - 1e-12:
+                    fp = last.get("average") or last.get("price") or limit_price
+                    return OrderResult(
+                        status="ok", maker=True, filled_base=float(last.get("filled") or amount),
+                        filled_price=fp, order=last,
+                        summary=f"[{self.mode}] 指値約定(maker): {side} {symbol} {amount}@{fp} id={oid}",
+                    )
+            # タイムアウト → キャンセルし、未約定の残りを成行
+            with self._lock:
+                try:
+                    ex.cancel_order(oid, symbol)
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    last = ex.fetch_order(oid, symbol)
+                except Exception:  # noqa: BLE001
+                    pass
+            filled = float(last.get("filled") or 0)
+            remaining = amount - filled
+            if remaining <= 1e-12:  # 締切直前に全約定していた
+                fp = last.get("average") or limit_price
+                return OrderResult(
+                    status="ok", maker=True, filled_base=filled, filled_price=fp, order=last,
+                    summary=f"[{self.mode}] 指値約定(maker): {side} {symbol} id={oid}",
+                )
+            rem = float(ex.amount_to_precision(symbol, remaining))
+            with self._lock:
+                mo = ex.create_order(symbol, "market", side, rem, None, extra)
+            mfilled = float(mo.get("filled") or rem)
+            fp = mo.get("average") or last.get("average") or limit_price
+            return OrderResult(
+                status="ok", maker=False, filled_base=filled + mfilled, filled_price=fp, order=mo,
+                summary=f"[{self.mode}] 指値一部→成行: {side} {symbol} 指値{filled}+成行{mfilled} id={mo.get('id')}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("指値経路で例外→成行にフォールバック: %s", exc)
+            with self._lock:
+                mo = ex.create_order(symbol, "market", side, amount, None, extra)
+            return OrderResult(
+                status="ok", maker=False, filled_base=float(mo.get("filled") or amount),
+                filled_price=mo.get("average"), order=mo,
+                summary=f"[{self.mode}] 成行(指値失敗のフォールバック): {side} {symbol} id={mo.get('id')}",
+            )
+
+    def _use_limit(self, force_market: bool) -> bool:
+        return (
+            not force_market
+            and settings.order_entry_type == "limit"
+            and self._exchange is not None
+            and self.mode != "DRY_RUN"
+        )
+
     # ---------- 買い（金額指定でエントリー） ----------
-    def buy(self, symbol: str, quote_amount: float, price: Optional[float]) -> OrderResult:
+    def buy(self, symbol: str, quote_amount: float, price: Optional[float], force_market: bool = False) -> OrderResult:
         if self.mode == "DRY_RUN" or self._exchange is None:
             px = price if (price and price > 0) else None
             filled = round(quote_amount / px, 10) if px else None
@@ -179,6 +264,9 @@ class Broker:
             # 数量は必ず取引所(JPY)の現在価格で計算（signal.priceはUSD建てで別物なので使わない）
             px = float(ex.fetch_ticker(symbol)["last"])
             amount = float(ex.amount_to_precision(symbol, quote_amount / px))
+        if self._use_limit(force_market):
+            return self._limit_then_market(symbol, "buy", amount, {})
+        with self._lock:
             order = ex.create_order(symbol, "market", "buy", amount, None, {})
         filled = order.get("filled") or order.get("amount")
         filled_price = order.get("average") or order.get("price") or px
@@ -187,13 +275,15 @@ class Broker:
         return OrderResult(status="ok", summary=summary, filled_base=filled, filled_price=filled_price, order=order)
 
     # ---------- 売り（保有 base を決済） ----------
-    def sell(self, symbol: str, base_amount: float, price: Optional[float]) -> OrderResult:
+    def sell(self, symbol: str, base_amount: float, price: Optional[float], force_market: bool = False) -> OrderResult:
         if self.mode == "DRY_RUN" or self._exchange is None:
             summary = f"[DRY_RUN] 本来発注: sell {symbol} 数量≈{base_amount} base（保有分を決済）"
             logger.info(summary)
             return OrderResult(status="dry_run", summary=summary, filled_base=base_amount, filled_price=price, order=None)
 
         ex = self._exchange
+        if self._use_limit(force_market):
+            return self._limit_then_market(symbol, "sell", base_amount, {})
         with self._lock:
             amount = float(ex.amount_to_precision(symbol, base_amount))
             order = ex.create_order(symbol, "market", "sell", amount, None, {})

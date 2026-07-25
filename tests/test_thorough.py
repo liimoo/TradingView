@@ -339,3 +339,112 @@ def test_build_positions_pct_sign_for_short():
     pos = [p for p in data["positions"] if p["symbol"] == "SOL/JPY"][0]
     assert pos["side"] == "short"
     assert "upnl_pct" in pos
+
+
+# ======================================================================
+# 指値(maker)→成行フォールバック の発注ロジック（偽の取引所で検証）
+# ======================================================================
+
+class _FakeExchange:
+    """テスト用の最小取引所。fill=Trueなら指値が約定、Falseなら未約定。"""
+
+    def __init__(self, fill=True, raise_ob=False):
+        self.fill = fill
+        self.raise_ob = raise_ob
+        self.created = []   # (type, side, amount, price)
+        self.canceled = []
+
+    def amount_to_precision(self, s, a):
+        return float(a)
+
+    def price_to_precision(self, s, p):
+        return float(p)
+
+    def fetch_order_book(self, s, n=5):
+        if self.raise_ob:
+            raise RuntimeError("板取得失敗")
+        return {"bids": [[100.0, 1]], "asks": [[101.0, 1]]}
+
+    def create_order(self, sym, typ, side, amount, price, params):
+        self.created.append((typ, side, amount, price, params))
+        done = typ == "market" or self.fill
+        return {
+            "id": f"o{len(self.created)}", "amount": amount,
+            "filled": amount if done else 0.0, "average": price or 100.0,
+            "status": "closed" if done else "open",
+        }
+
+    def fetch_order(self, oid, sym):
+        return {
+            "id": oid, "amount": 1.0, "filled": 1.0 if self.fill else 0.0,
+            "average": 100.0, "status": "closed" if self.fill else "open",
+        }
+
+    def cancel_order(self, oid, sym):
+        self.canceled.append(oid)
+
+
+def _live_broker(fill=True, raise_ob=False, monkeypatch=None):
+    import types
+    from app import broker as broker_mod
+    from app.config import settings
+
+    b = broker_mod.Broker()  # DRY_RUNで生成（取引所なし）
+    b.mode = "LIVE"
+    b._exchange = _FakeExchange(fill=fill, raise_ob=raise_ob)
+    settings.order_entry_type = "limit"
+    settings.maker_wait_sec = 1
+    # 実時間待ちを避ける：sleepは無効、monotonicは呼ぶたびに進めてループを短く打ち切る
+    ticks = {"t": 0.0}
+
+    def _mono():
+        ticks["t"] += 0.6
+        return ticks["t"]
+
+    monkeypatch.setattr(broker_mod, "time", types.SimpleNamespace(monotonic=_mono, sleep=lambda *a: None))
+    return b
+
+
+def test_limit_fills_uses_maker(monkeypatch):
+    b = _live_broker(fill=True, monkeypatch=monkeypatch)
+    res = b._limit_then_market("XRP/JPY", "buy", 1.0, {})
+    assert res["status"] == "ok" and res.get("maker") is True
+    # 指値のみ、成行は発注していない
+    assert [c[0] for c in b._exchange.created] == ["limit"]
+
+
+def test_limit_timeout_falls_back_to_market(monkeypatch):
+    b = _live_broker(fill=False, monkeypatch=monkeypatch)
+    res = b._limit_then_market("XRP/JPY", "buy", 1.0, {})
+    assert res["status"] == "ok" and res.get("maker") is False
+    # 指値→キャンセル→成行、の順で発注されている
+    assert [c[0] for c in b._exchange.created] == ["limit", "market"]
+    assert b._exchange.canceled  # キャンセルした
+
+
+def test_limit_exception_falls_back_to_market(monkeypatch):
+    b = _live_broker(fill=True, raise_ob=True, monkeypatch=monkeypatch)
+    res = b._limit_then_market("XRP/JPY", "sell", 1.0, {})
+    # 板取得で例外→成行にフォールバックして必ず約定
+    assert res["status"] == "ok" and res.get("maker") is False
+    assert [c[0] for c in b._exchange.created] == ["market"]
+
+
+def test_use_limit_respects_force_market_and_mode():
+    from app import broker as broker_mod
+    from app.config import settings
+
+    b = broker_mod.Broker()
+    b.mode = "LIVE"
+    b._exchange = object()
+    settings.order_entry_type = "limit"
+    assert b._use_limit(force_market=False) is True
+    assert b._use_limit(force_market=True) is False   # 安全決済は常に成行
+    settings.order_entry_type = "market"
+    assert b._use_limit(force_market=False) is False
+
+
+def teardown_module(module):
+    # 他テストへ設定が漏れないよう戻す
+    from app.config import settings
+    settings.order_entry_type = "market"

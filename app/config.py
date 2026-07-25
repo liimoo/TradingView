@@ -74,6 +74,11 @@ class Settings:
     min_order_jpy: float = field(default_factory=lambda: float(_get("MIN_ORDER_JPY", "0")))
     max_open_positions: int = field(default_factory=lambda: int(_get("MAX_OPEN_POSITIONS", "1")))
     order_cooldown_sec: int = field(default_factory=lambda: int(_get("ORDER_COOLDOWN_SEC", "60")))
+    # エントリー/サイン決済の注文方法。"market"=成行 / "limit"=指値(maker,手数料節約)。
+    # 損切り・利確などの安全決済は常に成行（この設定に関係なく）。
+    order_entry_type: str = field(default_factory=lambda: _get("ORDER_ENTRY_TYPE", "market").lower())
+    # 指値が約定しない時に成行へ切り替えるまでの待ち時間（秒）。order_entry_type=limit時のみ有効。
+    maker_wait_sec: int = field(default_factory=lambda: int(_get("MAKER_WAIT_SEC", "25")))
     # 損切り: 取得単価から この割合 下落したら自動で成行決済（0=無効）。例 0.05 = 5%
     stop_loss_pct: float = field(default_factory=lambda: float(_get("STOP_LOSS_PCT", "0")))
     # 利確: 取得単価から この割合 上昇したら自動で成行決済（0=無効）。例 0.05 = 5%
