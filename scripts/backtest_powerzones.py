@@ -134,9 +134,10 @@ def stats(trades: list) -> dict:
 
 
 def portfolio_sim(data_ts: dict, entry: float, scale: float, exit_: float,
-                  frac: float, max_pos: int) -> dict:
+                  frac: float, max_pos: int, stop_pct: float = 0.0) -> dict:
     """全銘柄を同時に扱い、1建玉=総資産のfrac、同時max_posまで、で口座全体を回す。
 
+    stop_pct>0: 平均取得から stop_pct 下落(終値ベース)で撤退（広い破滅回避ストップ用）。
     日足の口座エクイティ曲線から総リターン・年率・最大DDを出す（現実の口座に近い指標）。
     """
     syms = list(data_ts.keys())
@@ -170,7 +171,9 @@ def portfolio_sim(data_ts: dict, entry: float, scale: float, exit_: float,
                     p["units"] += add * (1 - FEE_PER_SIDE) / c
                     p["entries"].append(c)
                     cash -= add
-                if rs > exit_:
+                avg = sum(p["entries"]) / len(p["entries"])
+                hit_stop = stop_pct > 0 and c <= avg * (1 - stop_pct)
+                if rs > exit_ or hit_stop:   # 利確 or 広い破滅回避ストップ
                     cash += p["units"] * c * (1 - FEE_PER_SIDE)
                     del pos[s]
             else:
@@ -246,17 +249,28 @@ def main() -> None:
             print(f"{rname:<20}{st['n']:>8}{st['wr']:>7.1f}%{st['avg']:>7.2f}%"
                   f"{worst:>8.1f}%{avg_dd:>8.1f}%{worst_dd:>8.1f}%")
 
-    # ---- 口座全体シミュレーション（サイズ管理でDDを抑える）----
+    # ---- 「安心レベル別」口座全体シミュレーション ----
+    # サイズを小さくする / 広いストップを入れる で、DD(怖さ)と年率(リターン)がどう変わるか
     print("\n" + "=" * 78)
-    print("■ 口座全体シミュレーション（基本30/25/55・損切りなし・全10銘柄を分散運用）")
-    print("   1建玉=総資産のX%、同時Y銘柄まで。実際の口座に近いDDを測る。")
+    print("■ 安心レベル別シミュレーション（基本30/25/55・全10銘柄・口座全体）")
+    print("   ※DD(最大ドローダウン)=口座が一番目減りした割合。小さいほど怖くない。")
     print("=" * 78)
-    print(f"{'1建玉サイズ':<12}{'同時上限':>8}{'総リターン':>12}{'年率':>9}{'最大DD':>9}")
+    print(f"{'設定':<28}{'総リターン':>12}{'年率':>9}{'最大DD':>9}")
     print("-" * 78)
     p = VARIANTS["基本(30/25/55)"]
-    for frac, mx in [(0.10, 5), (0.15, 6), (0.20, 6), (0.20, 8), (0.30, 8)]:
-        r = portfolio_sim(data, p["entry"], p["scale"], p["exit"], frac, mx)
-        print(f"{f'{frac*100:.0f}%':<12}{mx:>8}{r['total']:>11.0f}%{r['cagr']:>8.1f}%{r['maxdd']:>8.1f}%")
+    configs = [
+        ("現在(10%×5・損切りなし)", 0.10, 5, 0.0),
+        ("サイズ小 7%×4・損切りなし", 0.07, 4, 0.0),
+        ("サイズ小 5%×4・損切りなし", 0.05, 4, 0.0),
+        ("サイズ小 5%×3・損切りなし", 0.05, 3, 0.0),
+        ("10%×5＋広ストップ-30%", 0.10, 5, 0.30),
+        ("10%×5＋広ストップ-25%", 0.10, 5, 0.25),
+        ("10%×5＋広ストップ-20%", 0.10, 5, 0.20),
+        ("5%×4＋広ストップ-25%", 0.05, 4, 0.25),
+    ]
+    for name, frac, mx, stop in configs:
+        r = portfolio_sim(data, p["entry"], p["scale"], p["exit"], frac, mx, stop)
+        print(f"{name:<28}{r['total']:>11.0f}%{r['cagr']:>8.1f}%{r['maxdd']:>8.1f}%")
 
 
 if __name__ == "__main__":

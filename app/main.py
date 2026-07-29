@@ -63,13 +63,16 @@ async def lifespan(app: FastAPI):
         settings.order_quote_amount,
         settings.stop_loss_pct,
     )
-    # 起動時に建玉を復元 → 損切り監視ループを開始
+    # 起動時に建玉を復元
     await monitor.reconstruct_positions()
-    tasks = [asyncio.create_task(monitor.exit_monitor_loop())]
-    # 新戦略(パワーゾーン)が有効なら、日足評価ループも起動
+    tasks = []
     if settings.strategy == "powerzones":
+        # パワーゾーンは自前で決済(RSI>55)するので、旧±5%監視ループは動かさない（損切りなし設計）
         from . import powerzones
         tasks.append(asyncio.create_task(powerzones.powerzones_loop()))
+    else:
+        # 旧戦略: ±5%損切り/利確の監視ループを開始
+        tasks.append(asyncio.create_task(monitor.exit_monitor_loop()))
     try:
         yield
     finally:

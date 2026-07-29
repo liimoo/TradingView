@@ -58,9 +58,9 @@ services:
       - key: RSI_OVERBOUGHT
         value: "70" # 売り判定のRSI閾値（同上）
       - key: STOP_LOSS_PCT
-        value: "0.05" # 取得単価から5%下落で自動損切り（ダッシュボードで調整可）
+        value: "0" # パワーゾーンは損切りなし（平均回帰では逆効果と検証済み。リスクはサイズで管理）
       - key: TAKE_PROFIT_PCT
-        value: "0.05" # 取得単価から5%上昇で自動利確（ダッシュボードで調整可）
+        value: "0" # パワーゾーンの利確はRSI>55で行うため、±%の利確は使わない
       - key: MONITOR_INTERVAL_SEC
         value: "60"
       - key: MAX_DAILY_LOSS_JPY
