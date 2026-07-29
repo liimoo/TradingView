@@ -40,9 +40,9 @@ services:
         value: "60"
       - key: NOTIFY_RESTORE
         value: "false" # 再デプロイ時の「建玉を復元しました」通知を出さない（開発中の通知洪水を防ぐ）
-      # 【要注意】開発中は静音のため false。パワーゾーンが実売買を始める前に true へ戻すこと（取引通知が来なくなるため）
+      # 本番の通知はオン（実売買を通知）。通知洪水の原因はテストの誤送信で、conftestで解決済み
       - key: NOTIFY_ENABLED
-        value: "false"
+        value: "true"
       - key: STRATEGY
         value: "powerzones" # 新戦略: サーバ計算・日足・ロングのみ(Larry ConnorsのRSIパワーゾーン)
       - key: PZ_MAX_POSITIONS

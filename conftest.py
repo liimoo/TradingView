@@ -19,6 +19,10 @@ _TEST_ENV = {
     "MAX_DAILY_LOSS_JPY": "2000",
     "MAX_DAILY_LOSS_PCT": "0.08",
     "STRATEGY": "webhook",  # 既定は旧webhook。個別テストは settings.strategy を直接切替える
+    # 【重要】テストは絶対に本物のDiscordへ通知しない。.envのDISCORD_WEBHOOK_URLを読んで
+    # 実送信してしまう事故（テスト実行のたびに通知が飛ぶ）を、この2つで確実に防ぐ。
+    "NOTIFY_ENABLED": "false",
+    "DISCORD_WEBHOOK_URL": "",
 }
 for _k, _v in _TEST_ENV.items():
     os.environ.setdefault(_k, _v)
