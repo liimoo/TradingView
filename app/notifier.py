@@ -17,6 +17,9 @@ logger = logging.getLogger("notifier")
 async def notify(message: str) -> None:
     """Discord にメッセージを送る。失敗しても例外を投げない（発注処理を止めない）。"""
     text = f"[{settings.trading_mode}] {message}"
+    if not settings.notify_enabled:
+        logger.info("(通知オフ) %s", text)
+        return
     if not settings.discord_webhook_url:
         logger.info("(discord未設定) %s", text)
         return
