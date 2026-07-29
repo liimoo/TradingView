@@ -701,9 +701,9 @@ async def flatten(body: SecretBody):
                         await asyncio.to_thread(broker.cancel, sym, pos.stop_order_id)
                     except Exception:  # noqa: BLE001
                         pass
-                res = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px)
+                res = await asyncio.to_thread(broker.sell, sym, pos.base_qty, px, True)  # 全決済は成行で確実に
             else:
-                res = await asyncio.to_thread(broker.margin_order, sym, "buy", pos.base_qty, "short", px)
+                res = await asyncio.to_thread(broker.margin_order, sym, "buy", pos.base_qty, "short", px, True)
             if pos.entry_price:
                 sign = 1 if pos.side == "long" else -1
                 risk_manager.record_close(sign * (px - pos.entry_price) * (pos.base_qty or 0))
