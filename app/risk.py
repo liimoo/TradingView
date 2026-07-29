@@ -52,6 +52,7 @@ class Position:
     opened_ts: float
     stop_order_id: str | None = None  # bitbankに置いた逆指値注文のID
     side: str = "long"  # long / short（現物は常に long、信用でのみ short もあり得る）
+    scaled: bool = False  # パワーゾーン: 買い増し済みか（買い増しは1回まで）
 
 
 @dataclass

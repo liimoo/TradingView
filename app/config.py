@@ -86,6 +86,24 @@ class Settings:
     # RSIの判定閾値（TradingView側のアラート設定と一致させる。レポート表示・記録用）。
     rsi_oversold: float = field(default_factory=lambda: float(_get("RSI_OVERSOLD", "30")))
     rsi_overbought: float = field(default_factory=lambda: float(_get("RSI_OVERBOUGHT", "70")))
+
+    # ===== 戦略モード =====
+    # "webhook" = 旧: TradingViewのRSIアラートを受けて売買（15分逆張り・ロング+ショート）
+    # "powerzones" = 新: サーバが日足でLarry ConnorsのRSIパワーゾーンを計算し売買（ロングのみ）
+    strategy: str = field(default_factory=lambda: _get("STRATEGY", "webhook").lower())
+    # --- パワーゾーン(日足・ロングのみ)のパラメーター ---
+    pz_sma_len: int = field(default_factory=lambda: int(_get("PZ_SMA_LEN", "200")))   # 長期トレンド
+    pz_rsi_len: int = field(default_factory=lambda: int(_get("PZ_RSI_LEN", "4")))     # 4期間RSI
+    pz_entry: float = field(default_factory=lambda: float(_get("PZ_ENTRY", "30")))    # 買い
+    pz_scale: float = field(default_factory=lambda: float(_get("PZ_SCALE", "25")))    # 買い増し
+    pz_exit: float = field(default_factory=lambda: float(_get("PZ_EXIT", "55")))      # 利確
+    pz_max_positions: int = field(default_factory=lambda: int(_get("PZ_MAX_POSITIONS", "5")))
+    # 判定を回す時刻(JST hour)。日足の確定後に評価する。例 9 = 毎日9:00 JST
+    pz_eval_hour: int = field(default_factory=lambda: int(_get("PZ_EVAL_HOUR", "9")))
+    # シグナル計算に使うOHLCVの取得元(ccxt id)。既定binance(長期・安定、JPYペアとほぼ同形)。
+    pz_data_exchange: str = field(default_factory=lambda: _get("PZ_DATA_EXCHANGE", "binance"))
+    # bitbank JPYペア → データ取得用ペア の対応（USDT建てで代用）。例 BTC/JPY=BTC/USDT
+    pz_data_map: dict = field(default_factory=lambda: _parse_symbol_map(_get("PZ_DATA_MAP", "")))
     # 価格監視ループの間隔（秒）
     monitor_interval_sec: int = field(default_factory=lambda: int(_get("MONITOR_INTERVAL_SEC", "60")))
     # Webhookを同期処理するか（テスト用。本番はFalse=即200返してバックグラウンド処理）

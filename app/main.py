@@ -65,11 +65,16 @@ async def lifespan(app: FastAPI):
     )
     # 起動時に建玉を復元 → 損切り監視ループを開始
     await monitor.reconstruct_positions()
-    task = asyncio.create_task(monitor.exit_monitor_loop())
+    tasks = [asyncio.create_task(monitor.exit_monitor_loop())]
+    # 新戦略(パワーゾーン)が有効なら、日足評価ループも起動
+    if settings.strategy == "powerzones":
+        from . import powerzones
+        tasks.append(asyncio.create_task(powerzones.powerzones_loop()))
     try:
         yield
     finally:
-        task.cancel()
+        for t in tasks:
+            t.cancel()
 
 
 app = FastAPI(title="TradingView RSI 中継サーバ", lifespan=lifespan)
@@ -138,6 +143,58 @@ async def positions_endpoint(secret: str = "", format: str = "html"):
         return JSONResponse(out)
     data = await asyncio.to_thread(build_positions)
     return HTMLResponse(render_positions_html(data))
+
+
+@app.get("/powerzones")
+async def powerzones_status(secret: str = "", format: str = "html"):
+    """パワーゾーン戦略の現在シグナル状況（発注しない・チャートの代替）。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    from . import powerzones
+    rows = await powerzones.signal_status()
+    if format == "json":
+        return JSONResponse({"strategy": settings.strategy, "eval_hour": settings.pz_eval_hour, "signals": rows})
+    esc = html_lib.escape
+    def cell(r):
+        if r.get("error"):
+            return f"<tr><td class='l'>{r['symbol']}</td><td class='l neg' colspan='5'>{esc(r['error'])}</td></tr>"
+        if r.get("note"):
+            return f"<tr><td class='l'>{r['symbol']}</td><td class='l muted' colspan='5'>{esc(r['note'])}</td></tr>"
+        w = r["would"]
+        wmap = {"buy": "🟢 買い", "scale": "➕ 買い増し", "sell": "💰 利確", "hold": "—"}
+        trend = "🟢 上" if r["above_sma"] else "🔴 下"
+        hold = ("あり" + ("(増済)" if r["scaled"] else "")) if r["holding"] else "なし"
+        return (f"<tr><td class='l'>{r['symbol']}</td><td>{r['rsi4']}</td>"
+                f"<td class='l'>{trend}</td><td class='l'>{hold}</td>"
+                f"<td class='l'>{wmap.get(w, w)}</td></tr>")
+    body = "".join(cell(r) for r in rows)
+    page = (
+        "<!doctype html><html lang='ja'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>パワーゾーン状況</title><style>"
+        "body{font-family:-apple-system,sans-serif;margin:1.2rem;color:#111;background:#fafafa}"
+        "table{border-collapse:collapse;width:100%;background:#fff;font-size:.9rem}"
+        "th,td{border:1px solid #ddd;padding:.45rem .6rem;text-align:right}"
+        ".l{text-align:left}.muted{color:#888}.neg{color:#c00}th{background:#f0f0f0}</style></head><body>"
+        f"<h1>パワーゾーン戦略 状況</h1><p class='muted'>200日SMAより上 かつ 4期間RSI&lt;{int(settings.pz_entry)} で買い / "
+        f"RSI&lt;{int(settings.pz_scale)}で買い増し / RSI&gt;{int(settings.pz_exit)}で利確。毎日{settings.pz_eval_hour}:00 JSTに評価。</p>"
+        "<table><tr><th class='l'>銘柄</th><th>4期間RSI</th><th class='l'>200日線</th>"
+        f"<th class='l'>建玉</th><th class='l'>今なら</th></tr>{body}</table>"
+        "<p class='muted'>※RSI・トレンドはシグナル用データ(USDT建て)基準。発注はbitbankのJPY現物。</p>"
+        "</body></html>"
+    )
+    return HTMLResponse(page)
+
+
+@app.post("/powerzones/run")
+async def powerzones_run(request: Request):
+    """パワーゾーン評価を今すぐ手動実行（テスト用）。DRY_RUNなら発注せず判定のみ。"""
+    body = await request.json()
+    if not verify_secret(body.get("secret", ""), settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    from . import powerzones
+    results = await powerzones.evaluate_all()
+    return JSONResponse({"ran": True, "results": results})
 
 
 @app.get("/tax")
@@ -379,6 +436,10 @@ async def webhook(request: Request) -> JSONResponse:
         logger.warning("シークレット不一致（symbol=%s action=%s）", signal.symbol, signal.action)
         await notify(f"⚠️ 不正なWebhook（secret不一致）: {signal.action} {signal.symbol}")
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    # 1.5) パワーゾーン戦略が有効な間は、旧TradingViewアラートは無視（二重売買を防ぐ）
+    if settings.strategy == "powerzones":
+        return JSONResponse(status_code=200, content={"status": "ignored_powerzones_mode"})
 
     # 2) 二重POST排除（同じ足の同じサイン）
     key = f"{signal.symbol}|{signal.action}|{signal.bar_time or ''}"
