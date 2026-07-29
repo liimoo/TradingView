@@ -241,42 +241,10 @@
     <p style="margin-top:1rem;font-size:0.9rem;color:var(--ink-2)">補足: Webhookは即200を返し、発注は背景タスクで直列処理（TradingViewのタイムアウト回避）。約定/見送り/エラーは全てDiscordへ通知。共有secretで認証。発注サイズや損切り率などは稼働中に変更可能。</p>
   </section>
 
-  <section>
-    <h2><span class="num">03</span> エントリー／決済ロジック</h2>
-    <p class="sec-sub">決済には2経路。<b>主役はRSIの反対サイン（フリップ）</b>で、±5%は急変用の安全ネット。</p>
-    <div class="tbl-scroll">
-      <table>
-        <thead><tr><th>イベント</th><th>トリガー</th><th>動作</th><th>注文</th></tr></thead>
-        <tbody>
-          <tr><td>ロング建て</td><td><code>RSI ≤ 30</code> 下抜け</td><td>現物を買い</td><td>指値→成行</td></tr>
-          <tr><td>ショート建て</td><td><code>RSI ≥ 70</code> 上抜け</td><td>信用で売建</td><td>指値→成行</td></tr>
-          <tr><td>フリップ決済</td><td>反対サイン</td><td>建玉を決済し反対へドテン</td><td>指値→成行</td></tr>
-          <tr><td>損切り</td><td>取得単価から <b>−5%</b></td><td>成行で決済</td><td class="mono">常に成行</td></tr>
-          <tr><td>利確</td><td>取得単価から <b>+5%</b></td><td>成行で決済</td><td class="mono">常に成行</td></tr>
-          <tr><td>逆指値(現物)</td><td>買いと同時に設置</td><td>約定でロング決済</td><td class="mono">常に成行</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="note" style="margin-top:1rem"><b>観察された挙動:</b> 15分足ではRSIが30↔70をすぐ往復するため、価格が±5%動く前にフリップ決済されるケースがほとんど。結果、1往復あたりの値幅は多くが<b>1%未満</b>で、実質「RSIの振れを細かく取るスキャル」になっている。</div>
-  </section>
+
 
   <section>
-    <h2><span class="num">04</span> 注文執行（手数料対策）</h2>
-    <p class="sec-sub">手数料負けが見えたため、直近で成行→指値(maker)に切替えた。</p>
-    <div class="grid-2">
-      <div class="card">
-        <h3 style="margin-top:0">指値→成行フォールバック</h3>
-        <p style="color:var(--ink-2);font-size:0.9rem;margin-bottom:0">板の先頭に<code>post_only</code>の指値を置き、<b>25秒</b>で約定しなければ残りを成行で確実に約定（サインを取り逃さない）。例外時も必ず成行にフォールバック。</p>
-      </div>
-      <div class="card">
-        <h3 style="margin-top:0">サイズと価格の扱い</h3>
-        <p style="color:var(--ink-2);font-size:0.9rem;margin-bottom:0">TradingViewはUSDT建て価格を送るが、<b>発注数量・損益は常にbitbankのJPY価格で再取得</b>して計算（建値・逆指値も）。発注額＝<code>min(総資産×10%, 使える現金)</code>。</p>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <h2><span class="num">05</span> パラメーター</h2>
+    <h2><span class="num">03</span> パラメーター</h2>
     <p class="sec-sub">稼働中に調整可能。現在値は下記。</p>
     <div class="tbl-scroll">
       <table>
@@ -298,7 +266,7 @@
   </section>
 
   <section>
-    <h2><span class="num">06</span> 銘柄ユニバース</h2>
+    <h2><span class="num">04</span> 銘柄ユニバース</h2>
     <p class="sec-sub">全10銘柄（JPYペア）。信用対応はbitbank側の制約で5銘柄のみ、残りは現物ロング専用。</p>
     <div class="tbl-scroll">
       <table>
@@ -312,7 +280,7 @@
   </section>
 
   <section>
-    <h2><span class="num">07</span> リスク管理</h2>
+    <h2><span class="num">05</span> リスク管理</h2>
     <div class="grid-2">
       <div class="card">
         <ul class="clean" style="margin:0">
@@ -332,7 +300,7 @@
   </section>
 
   <section>
-    <h2><span class="num">08</span> 実績（正直値・約9日）</h2>
+    <h2><span class="num">06</span> 実績（正直値・約9日）</h2>
     <p class="sec-sub">数万円の少額検証。結論から言うと、現時点は<b>マイナス</b>。手数料に加え、直近は値幅の稼ぎ自体もマイナス圏。</p>
     <div class="tbl-scroll">
       <table>
@@ -349,7 +317,7 @@
   </section>
 
   <section>
-    <h2><span class="num">09</span> ご相談したい論点</h2>
+    <h2><span class="num">07</span> ご相談したい論点</h2>
     <p class="sec-sub">特にご意見を伺いたいポイントです。全体観・優先順位も含めて、率直な指摘を歓迎します。</p>
     <div class="q">
       <div class="qitem"><h4>手数料負けの構造</h4><p>薄利多売＋逆張りは、この設計だと手数料に勝てないのでは？ 指値(maker)化で改善する見込みか、それとも取引回数を絞る/利幅を狙う方向に変えるべきか。</p></div>
