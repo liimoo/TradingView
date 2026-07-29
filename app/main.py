@@ -239,6 +239,7 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
   <a href='/report?secret=__S__' target='_blank'>📊 損益レポート</a> ／
   <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a> ／
   <a href='/tax?secret=__S__' target='_blank'>🧾 年間損益(税金の目安)</a><br>
+  <a href='/powerzones?secret=__S__' target='_blank'>⚡ パワーゾーン状況</a> ／
   <a href='/config?secret=__S__' target='_blank'>⚙️ パラメーター調整</a> ／
   <a href='/guide' target='_blank'>📖 通知の見方</a> ／
   <a href='/health' target='_blank'>🩺 稼働状況</a>
