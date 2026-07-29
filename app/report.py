@@ -106,8 +106,9 @@ def render_positions_html(data: dict) -> str:
             )
         parts.append("</table><p class='muted'>※含み損益は概算（現在値ベース）。手数料・金利は含みません</p>")
 
+    # 信用の証拠金状況（パワーゾーンはロングのみなので非表示）
     ms = data.get("margin_status") or {}
-    if ms:
+    if ms and settings.strategy != "powerzones":
         parts.append("<h2>信用の証拠金状況</h2><table>")
         parts.append(f"<tr><td class='l'>保証金率</td><td>{ms.get('total_margin_balance_percentage') or '-'} %</td></tr>")
         parts.append(f"<tr><td class='l'>ロスカット率</td><td>{ms.get('losscut_percentage') or '-'} %</td></tr>")
@@ -425,8 +426,12 @@ def render_html(data: dict) -> str:
             parts.append(f"　<span class='muted'>(未決済 {s['open_lots']}件)</span>")
         parts.append("</div>")
         if rts:
-            os_th = _fmt_num(settings.rsi_oversold)
-            ob_th = _fmt_num(settings.rsi_overbought)
+            is_pz = settings.strategy == "powerzones"
+            if is_pz:
+                pz_e, pz_x = _fmt_num(settings.pz_entry), _fmt_num(settings.pz_exit)
+            else:
+                os_th = _fmt_num(settings.rsi_oversold)
+                ob_th = _fmt_num(settings.rsi_overbought)
             parts.append(
                 "<table><tr><th>#</th><th class='l'>方向</th><th class='l'>判定(RSI)</th>"
                 "<th class='l'>エントリー(JST)</th><th>取得単価</th><th>取得RSI</th>"
@@ -438,10 +443,13 @@ def render_html(data: dict) -> str:
                 pcls = "pos" if r["pnl"] >= 0 else "neg"
                 is_long = r.get("side") == "long"
                 side_jp = "ロング🟩" if is_long else "ショート🟦"
-                # 判定根拠: ロングは 買RSI≤30→売RSI≥70 / ショートは 売RSI≥70→買RSI≤30
-                judge = (
-                    f"買 ≤{os_th} → 売 ≥{ob_th}" if is_long else f"売 ≥{ob_th} → 買 ≤{os_th}"
-                )
+                # 判定根拠。パワーゾーンは 200日線上でRSI≤30買い→RSI>55利確（ロングのみ）
+                if is_pz:
+                    judge = f"買 ≤{pz_e}(200日線上) → 利確 >{pz_x}"
+                elif is_long:
+                    judge = f"買 ≤{os_th} → 売 ≥{ob_th}"
+                else:
+                    judge = f"売 ≥{ob_th} → 買 ≤{os_th}"
                 parts.append(
                     f"<tr><td>{num}</td><td class='l'>{side_jp}</td><td class='l muted'>{judge}</td>"
                     f"<td class='l'>{esc(_fmt_ts(r['entry_ts'], True) if r['entry_ts'] else '')}</td><td>{r['entry_price']}</td>"
