@@ -27,6 +27,7 @@ MIN_TRADES = 20
 STRONG_TOTAL = 100.0
 TAIL_WORST = -40.0
 TAIL_DD = -50.0
+RECENT_DAYS = 730  # 直近この日数(=2年)のトレードが合計マイナスなら「最近ダメ」で除外
 
 _CACHE_FILE = Path(__file__).resolve().parent.parent / "logs" / "screen_cache.json"
 _cache: dict = {}
@@ -35,7 +36,8 @@ _refreshing = False
 
 # ---- バックテスト（単独銘柄・パワーゾーン。scriptと同じ） ----
 
-def _backtest(closes, sma200, rsi4) -> list:
+def _backtest(closes, sma200, rsi4, ts) -> list:
+    """(決済タイムスタンプ, 損益率) のリストを返す。"""
     trades, in_pos, entries = [], False, []
     for i in range(len(closes)):
         if sma200[i] is None or rsi4[i] is None:
@@ -49,9 +51,16 @@ def _backtest(closes, sma200, rsi4) -> list:
                 entries.append(c)
             if rsi4[i] > EXIT:
                 avg = sum(entries) / len(entries)
-                trades.append(c / avg - 1 - FEE_PER_SIDE * (len(entries) + 1))
+                trades.append((ts[i], c / avg - 1 - FEE_PER_SIDE * (len(entries) + 1)))
                 in_pos, entries = False, []
     return trades
+
+
+def _compound(rets: list) -> float:
+    eq = 1.0
+    for r in rets:
+        eq *= (1 + r)
+    return (eq - 1) * 100
 
 
 def _stats(trades: list) -> dict:
@@ -69,13 +78,15 @@ def _stats(trades: list) -> dict:
                 total=(eq - 1) * 100, maxdd=maxdd * 100, worst=min(trades) * 100)
 
 
-def _classify(st: dict) -> tuple[str, str]:
+def _classify(st: dict, recent_total: float) -> tuple[str, str]:
     if st["n"] < MIN_TRADES:
         return "insufficient", f"取引{st['n']}回"
     if st["avg"] <= 0 or st["total"] < 0:
         return "exclude", "平均マイナス=悪玉"
     tail = " ⚠尾リスク大" if (st["worst"] < TAIL_WORST or st["maxdd"] < TAIL_DD) else ""
     if st["total"] >= STRONG_TOTAL:
+        if recent_total < 0:  # 全期間は100%以上だが直近2年がマイナス→最近ダメで除外
+            return "recent_bad", f"最近2年マイナス({recent_total:.0f}%)→除外"
         return "strong", "採用推奨" + tail
     return "ok", "検討(弱め)" + tail
 
@@ -108,6 +119,7 @@ def refresh() -> dict:
         markets = bb.load_markets()
         jpy = sorted(s for s, v in markets.items()
                      if v.get("quote") == "JPY" and v.get("spot", True) and v.get("active", True))
+        cutoff_ms = int((datetime.now(timezone.utc).timestamp() - RECENT_DAYS * 86400) * 1000)
         rows, nodata = [], []
         for pair in jpy:
             base = pair.split("/")[0]
@@ -119,10 +131,12 @@ def refresh() -> dict:
                 nodata.append(base)
                 continue
             closes = [c[4] for c in o]
-            tr = _backtest(closes, sma(closes, SMA_LEN), rsi_wilder(closes, RSI_LEN))
-            st = _stats(tr)
-            tier, note = _classify(st)
-            rows.append({"base": base, "tier": tier, "note": note, **st})
+            ts = [c[0] for c in o]
+            trades = _backtest(closes, sma(closes, SMA_LEN), rsi_wilder(closes, RSI_LEN), ts)
+            st = _stats([r for _, r in trades])
+            recent = _compound([r for t, r in trades if t >= cutoff_ms])  # 直近2年の損益
+            tier, note = _classify(st, recent)
+            rows.append({"base": base, "tier": tier, "note": note, "recent": recent, **st})
         rows.sort(key=lambda r: r["total"], reverse=True)
         strong = [r["base"] for r in rows if r["tier"] == "strong"]
         ok = [r["base"] for r in rows if r["tier"] == "ok"]

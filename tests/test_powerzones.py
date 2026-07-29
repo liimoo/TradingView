@@ -182,3 +182,39 @@ def test_active_universe_fallback_when_no_screening(monkeypatch):
     uni = pz.active_universe()
     assert set(uni) == {"BTC/JPY", "ETH/JPY"}  # allowed_symbolsにフォールバック
     settings.pz_dynamic_universe = False
+
+
+# ---- スクリーニングのハイブリッド分類（全期間100%以上＋直近2年） ----
+
+def test_screener_classify_strong_when_recent_ok():
+    from app import screener
+    st = {"n": 40, "avg": 3.0, "total": 300.0, "worst": -25.0, "maxdd": -30.0}
+    tier, _ = screener._classify(st, recent_total=50.0)  # 直近2年プラス
+    assert tier == "strong"
+
+
+def test_screener_classify_recent_bad_excluded():
+    from app import screener
+    # 全期間は+509%(優秀)でも直近2年がマイナスなら除外（DOGE型）
+    st = {"n": 40, "avg": 10.0, "total": 509.0, "worst": -22.0, "maxdd": -49.0}
+    tier, note = screener._classify(st, recent_total=-14.0)
+    assert tier == "recent_bad" and "最近2年マイナス" in note
+
+
+def test_screener_classify_weak_and_toxic():
+    from app import screener
+    assert screener._classify({"n": 40, "avg": 1.0, "total": 50.0, "worst": -20, "maxdd": -20}, 10.0)[0] == "ok"
+    assert screener._classify({"n": 40, "avg": -2.0, "total": -60.0, "worst": -25, "maxdd": -68}, -30.0)[0] == "exclude"
+    assert screener._classify({"n": 5, "avg": 5.0, "total": 100.0, "worst": -5, "maxdd": -5}, 50.0)[0] == "insufficient"
+
+
+def test_screener_backtest_returns_ts_and_compound():
+    from app import screener
+    # i=2で c>SMA かつ RSI<30 → 買い、i=3で RSI>55 → 利確
+    closes = [100, 90, 95, 100, 110]
+    s = [None, None, 90, 92, 95]      # SMA(擬似)
+    r = [None, 28, 28, 60, 40]        # RSI(擬似)
+    ts = [1000, 2000, 3000, 4000, 5000]
+    trades = screener._backtest(closes, s, r, ts)
+    assert len(trades) == 1 and len(trades[0]) == 2 and trades[0][0] == 4000  # (決済ts, ret)
+    assert screener._compound([0.1, 0.1]) > 20  # 複利で+21%

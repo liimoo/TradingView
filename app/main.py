@@ -207,15 +207,18 @@ async def screen_page(secret: str = "", format: str = "html"):
                 "<p>集計データがありません。「今すぐ更新」を押してください。</p>")
         rows_html = ""
     else:
-        tiers = {"strong": "🟢採用推奨", "ok": "🟡検討", "exclude": "🔴除外", "insufficient": "⚪判定不能"}
+        tiers = {"strong": "🟢採用推奨", "ok": "🟡検討", "recent_bad": "🟠最近ダメ",
+                 "exclude": "🔴除外", "insufficient": "⚪判定不能"}
         cur = set(settings.allowed_symbols)
         trs = []
         for r in data.get("rows", []):
             using = "✔" if f"{r['base']}/JPY" in cur else ""
+            rec = r.get("recent")
+            rec_s = f"{rec:.0f}%" if rec is not None else "-"
             trs.append(
                 f"<tr><td class='l'>{esc(r['base'])}</td><td>{using}</td><td>{r['n']}</td>"
                 f"<td>{r['wr']:.0f}%</td><td>{r['avg']:.1f}%</td><td>{r['total']:.0f}%</td>"
-                f"<td>{r['worst']:.0f}%</td><td>{r['maxdd']:.0f}%</td>"
+                f"<td>{rec_s}</td><td>{r['worst']:.0f}%</td><td>{r['maxdd']:.0f}%</td>"
                 f"<td class='l'>{tiers.get(r['tier'], r['tier'])} {esc(r['note'])}</td></tr>"
             )
         rows_html = "".join(trs)
@@ -225,7 +228,7 @@ async def screen_page(secret: str = "", format: str = "html"):
         body = (
             f"<p class='muted'>最終更新: {esc(data.get('generated',''))}　（✔=現在の対象銘柄）</p>"
             "<table><tr><th class='l'>銘柄</th><th>採用中</th><th>回数</th><th>勝率</th><th>平均</th>"
-            "<th>総ﾘﾀｰﾝ</th><th>最悪</th><th>最大DD</th><th class='l'>区分</th></tr>"
+            "<th>総ﾘﾀｰﾝ</th><th>直近2年</th><th>最悪</th><th>最大DD</th><th class='l'>区分</th></tr>"
             f"{rows_html}</table>"
             f"<p class='muted'>データ源なし（対象外）: {esc(nd)}</p>"
             f"<h3>推奨A（採用推奨のみ・{len(data.get('recommend_a',[]))}銘柄）</h3>"
