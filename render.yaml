@@ -47,8 +47,8 @@ services:
         value: "powerzones" # 新戦略: サーバ計算・日足・ロングのみ(Larry ConnorsのRSIパワーゾーン)
       - key: PZ_MAX_POSITIONS
         value: "5" # 同時保有の上限（サイズ管理でDDを抑える。検証で最良）
-      - key: PZ_EVAL_HOUR
-        value: "9" # 毎日9:00 JSTに日足評価
+      - key: PZ_EVAL_HOURS
+        value: "9,21" # 評価時刻(JST)。朝9時＋夜21時の2回（日足戦略なので判断は同じ、朝の失敗を夜に拾う保険）
       - key: ORDER_ENTRY_TYPE
         value: "limit" # エントリー/サイン決済は指値(maker,手数料節約)。損切り等の安全決済は常に成行
       - key: MAKER_WAIT_SEC

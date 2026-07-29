@@ -235,19 +235,25 @@ async def signal_status() -> list[dict]:
 
 
 def _seconds_until_eval() -> float:
+    """次の評価時刻(複数可)までの秒数。"""
     now = datetime.now(JST)
-    target = now.replace(hour=settings.pz_eval_hour, minute=0, second=0, microsecond=0)
-    if target <= now:
-        target += timedelta(days=1)
-    return (target - now).total_seconds()
+    hours = settings.pz_eval_hours or [9]
+    secs = []
+    for h in hours:
+        t = now.replace(hour=h, minute=0, second=0, microsecond=0)
+        if t <= now:
+            t += timedelta(days=1)
+        secs.append((t - now).total_seconds())
+    return min(secs)
 
 
 async def powerzones_loop() -> None:
-    """毎日 pz_eval_hour(JST) にパワーゾーンを評価するループ。"""
+    """毎日 pz_eval_hours(JST) にパワーゾーンを評価するループ。"""
     if settings.strategy != "powerzones":
         logger.info("パワーゾーン戦略は無効（STRATEGY=%s）", settings.strategy)
         return
-    logger.info("パワーゾーン戦略 起動（毎日%d:00 JSTに評価）", settings.pz_eval_hour)
+    hours = ", ".join(f"{h}:00" for h in settings.pz_eval_hours)
+    logger.info("パワーゾーン戦略 起動（評価時刻 JST %s）", hours)
     while True:
         await asyncio.sleep(_seconds_until_eval())
         try:

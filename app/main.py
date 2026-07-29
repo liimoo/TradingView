@@ -157,7 +157,7 @@ async def powerzones_status(secret: str = "", format: str = "html"):
     from . import powerzones
     rows = await powerzones.signal_status()
     if format == "json":
-        return JSONResponse({"strategy": settings.strategy, "eval_hour": settings.pz_eval_hour, "signals": rows})
+        return JSONResponse({"strategy": settings.strategy, "eval_hours": settings.pz_eval_hours, "signals": rows})
     esc = html_lib.escape
     def cell(r):
         if r.get("error"):
@@ -181,7 +181,7 @@ async def powerzones_status(secret: str = "", format: str = "html"):
         "th,td{border:1px solid #ddd;padding:.45rem .6rem;text-align:right}"
         ".l{text-align:left}.muted{color:#888}.neg{color:#c00}th{background:#f0f0f0}</style></head><body>"
         f"<h1>パワーゾーン戦略 状況</h1><p class='muted'>200日SMAより上 かつ 4期間RSI&lt;{int(settings.pz_entry)} で買い / "
-        f"RSI&lt;{int(settings.pz_scale)}で買い増し / RSI&gt;{int(settings.pz_exit)}で利確。毎日{settings.pz_eval_hour}:00 JSTに評価。</p>"
+        f"RSI&lt;{int(settings.pz_scale)}で買い増し / RSI&gt;{int(settings.pz_exit)}で利確。評価 JST {'/'.join(str(h)+':00' for h in settings.pz_eval_hours)}。</p>"
         "<table><tr><th class='l'>銘柄</th><th>4期間RSI</th><th class='l'>200日線</th>"
         f"<th class='l'>建玉</th><th class='l'>今なら</th></tr>{body}</table>"
         "<p class='muted'>※RSI・トレンドはシグナル用データ(USDT建て)基準。発注はbitbankのJPY現物。</p>"

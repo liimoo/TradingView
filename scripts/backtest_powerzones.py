@@ -116,6 +116,36 @@ def backtest(closes: list, sma200: list, rsi4: list, entry: float, scale: float,
     return trades
 
 
+def short_backtest(closes: list, sma200: list, rsi4: list, entry: float, scale: float, exit_: float) -> list:
+    """パワーゾーンを反転したショート版。
+
+    200日SMAより「下」で RSI が entry(例70) 超 → 空売り、scale(75)超で売り増し、
+    exit(45)未満で買い戻し。ショートの損益率 = 取得/決済 - 1（値下がりで利益）。
+    """
+    trades = []
+    in_pos = False
+    entries: list = []
+    for i in range(len(closes)):
+        if sma200[i] is None or rsi4[i] is None:
+            continue
+        c = closes[i]
+        if not in_pos:
+            if c < sma200[i] and rsi4[i] > entry:   # 下落トレンド かつ 買われすぎ
+                in_pos = True
+                entries = [c]
+        else:
+            if rsi4[i] > scale and len(entries) == 1:
+                entries.append(c)
+            if rsi4[i] < exit_:
+                avg = sum(entries) / len(entries)
+                gross = avg / c - 1               # ショート: 値下がりで利益
+                fees = FEE_PER_SIDE * (len(entries) + 1)
+                trades.append(gross - fees)
+                in_pos = False
+                entries = []
+    return trades
+
+
 def stats(trades: list) -> dict:
     n = len(trades)
     if n == 0:
@@ -248,6 +278,27 @@ def main() -> None:
             worst_dd = min(dds) if dds else 0.0
             print(f"{rname:<20}{st['n']:>8}{st['wr']:>7.1f}%{st['avg']:>7.2f}%"
                   f"{worst:>8.1f}%{avg_dd:>8.1f}%{worst_dd:>8.1f}%")
+
+    # ---- ロング(通常) vs ショート(反転) の比較 ----
+    print("\n" + "=" * 78)
+    print("■ ロング(パワーゾーン) vs ショート(反転版) — 全10銘柄合算・手数料込み")
+    print("   ロング: 200日線上でRSI<30買い→>55利確 / ショート: 200日線下でRSI>70売り→<45買戻")
+    print("=" * 78)
+    print(f"{'方向':<16}{'トレード':>8}{'勝率':>8}{'平均損益':>10}{'最悪1回':>10}")
+    print("-" * 78)
+    long_all, short_all = [], []
+    for sym in SYMBOLS:
+        if sym not in data:
+            continue
+        _ts, closes, s, r = data[sym]
+        if len(closes) < SMA_LEN + RSI_LEN + 5:
+            continue
+        long_all += backtest(closes, s, r, 30, 25, 55)
+        short_all += short_backtest(closes, s, r, 70, 75, 45)
+    for name, tr in [("ロング(通常)", long_all), ("ショート(反転)", short_all)]:
+        st = stats(tr)
+        worst = min(tr) * 100 if tr else 0.0
+        print(f"{name:<16}{st['n']:>8}{st['wr']:>7.1f}%{st['avg']:>9.2f}%{worst:>9.1f}%")
 
     # ---- 「安心レベル別」口座全体シミュレーション ----
     # サイズを小さくする / 広いストップを入れる で、DD(怖さ)と年率(リターン)がどう変わるか

@@ -107,3 +107,20 @@ def test_data_pair_map_override():
     settings.pz_data_map = {"BTC/JPY": "BTC/USD"}
     assert pz.data_pair("BTC/JPY") == "BTC/USD"
     settings.pz_data_map = {}
+
+
+def test_parse_hours():
+    from app.config import _parse_hours
+    assert _parse_hours("9,21") == [9, 21]
+    assert _parse_hours("21, 9, 9") == [9, 21]  # 重複除去・昇順
+    assert _parse_hours("") == [9]              # 空は既定9
+    assert _parse_hours("25,9") == [9]          # 範囲外は無視
+
+
+def test_seconds_until_eval_multi():
+    from app.config import settings
+    from app import powerzones as pz
+    settings.pz_eval_hours = [9, 21]
+    s = pz._seconds_until_eval()
+    assert 0 < s <= 24 * 3600  # 次の評価時刻まで24h以内
+    settings.pz_eval_hours = [9]

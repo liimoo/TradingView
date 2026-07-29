@@ -38,6 +38,22 @@ def _split_symbols(raw: str) -> list[str]:
     return out
 
 
+def _parse_hours(raw: str) -> list[int]:
+    """"9,21" → [9, 21]。0〜23の整数のみ、重複除去・昇順。空なら[9]。"""
+    out = set()
+    for s in (raw or "").split(","):
+        s = s.strip()
+        if not s:
+            continue
+        try:
+            h = int(s)
+        except ValueError:
+            continue
+        if 0 <= h <= 23:
+            out.add(h)
+    return sorted(out) or [9]
+
+
 def sized_quote(pct: float, total_assets: float, free_jpy: float, fixed: float) -> float:
     """発注額を決める。pct>0なら min(総資産×pct, 使える現金)、そうでなければ固定額。"""
     if pct and pct > 0:
@@ -98,8 +114,9 @@ class Settings:
     pz_scale: float = field(default_factory=lambda: float(_get("PZ_SCALE", "25")))    # 買い増し
     pz_exit: float = field(default_factory=lambda: float(_get("PZ_EXIT", "55")))      # 利確
     pz_max_positions: int = field(default_factory=lambda: int(_get("PZ_MAX_POSITIONS", "5")))
-    # 判定を回す時刻(JST hour)。日足の確定後に評価する。例 9 = 毎日9:00 JST
-    pz_eval_hour: int = field(default_factory=lambda: int(_get("PZ_EVAL_HOUR", "9")))
+    # 判定を回す時刻(JST hour)。カンマ区切りで複数可。例 "9" / "9,21"（朝晩2回=保険）。
+    # 日足戦略なので同じ日足を見る限り判断は同じ。複数化は主に「朝の失敗を夜に拾う」信頼性向上のため。
+    pz_eval_hours: list = field(default_factory=lambda: _parse_hours(_get("PZ_EVAL_HOURS", _get("PZ_EVAL_HOUR", "9"))))
     # シグナル計算に使うOHLCVの取得元(ccxt id)。既定binance(長期・安定、JPYペアとほぼ同形)。
     pz_data_exchange: str = field(default_factory=lambda: _get("PZ_DATA_EXCHANGE", "binance"))
     # bitbank JPYペア → データ取得用ペア の対応（USDT建てで代用）。例 BTC/JPY=BTC/USDT
