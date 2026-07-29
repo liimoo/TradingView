@@ -85,6 +85,7 @@ async def health() -> dict:
     return {
         "status": "ok",
         "mode": settings.trading_mode,
+        "strategy": settings.strategy,
         "killed": risk_manager.is_killed(),
         "open_positions": risk_manager.open_count,
         "positions": {
