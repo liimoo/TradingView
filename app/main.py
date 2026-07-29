@@ -68,8 +68,9 @@ async def lifespan(app: FastAPI):
     tasks = []
     if settings.strategy == "powerzones":
         # パワーゾーンは自前で決済(RSI>55)するので、旧±5%監視ループは動かさない（損切りなし設計）
-        from . import powerzones
+        from . import powerzones, screener
         tasks.append(asyncio.create_task(powerzones.powerzones_loop()))
+        tasks.append(asyncio.create_task(screener.screener_loop()))  # 銘柄スクリーニングを裏で集計
     else:
         # 旧戦略: ±5%損切り/利確の監視ループを開始
         tasks.append(asyncio.create_task(monitor.exit_monitor_loop()))
@@ -190,6 +191,78 @@ async def powerzones_status(secret: str = "", format: str = "html"):
     return HTMLResponse(page)
 
 
+@app.get("/screen")
+async def screen_page(secret: str = "", format: str = "html"):
+    """銘柄スクリーニング結果（採用/除外の提案）。サーバが裏で週1集計したキャッシュを表示。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    from . import screener
+    data = screener.get_cached()
+    if format == "json":
+        return JSONResponse(data or {"note": "集計中"})
+    esc = html_lib.escape
+    if not data:
+        body = ("<p>まだ集計されていません（初回集計中、数分かかります）。少し待ってから再読み込みしてください。</p>"
+                if screener.is_refreshing() else
+                "<p>集計データがありません。「今すぐ更新」を押してください。</p>")
+        rows_html = ""
+    else:
+        tiers = {"strong": "🟢採用推奨", "ok": "🟡検討", "exclude": "🔴除外", "insufficient": "⚪判定不能"}
+        cur = set(settings.allowed_symbols)
+        trs = []
+        for r in data.get("rows", []):
+            using = "✔" if f"{r['base']}/JPY" in cur else ""
+            trs.append(
+                f"<tr><td class='l'>{esc(r['base'])}</td><td>{using}</td><td>{r['n']}</td>"
+                f"<td>{r['wr']:.0f}%</td><td>{r['avg']:.1f}%</td><td>{r['total']:.0f}%</td>"
+                f"<td>{r['worst']:.0f}%</td><td>{r['maxdd']:.0f}%</td>"
+                f"<td class='l'>{tiers.get(r['tier'], r['tier'])} {esc(r['note'])}</td></tr>"
+            )
+        rows_html = "".join(trs)
+        nd = ", ".join(data.get("nodata", []))
+        recA = ",".join(data.get("recommend_a", []))
+        recB = ",".join(data.get("recommend_b", []))
+        body = (
+            f"<p class='muted'>最終更新: {esc(data.get('generated',''))}　（✔=現在の対象銘柄）</p>"
+            "<table><tr><th class='l'>銘柄</th><th>採用中</th><th>回数</th><th>勝率</th><th>平均</th>"
+            "<th>総ﾘﾀｰﾝ</th><th>最悪</th><th>最大DD</th><th class='l'>区分</th></tr>"
+            f"{rows_html}</table>"
+            f"<p class='muted'>データ源なし（対象外）: {esc(nd)}</p>"
+            f"<h3>推奨A（採用推奨のみ・{len(data.get('recommend_a',[]))}銘柄）</h3>"
+            f"<textarea readonly rows='2'>{esc(recA)}</textarea>"
+            f"<h3>推奨B（採用推奨＋検討・{len(data.get('recommend_b',[]))}銘柄）</h3>"
+            f"<textarea readonly rows='3'>{esc(recB)}</textarea>"
+        )
+    page = (
+        "<!doctype html><html lang='ja'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>銘柄スクリーニング</title><style>"
+        "body{font-family:-apple-system,sans-serif;margin:1.2rem;color:#111;background:#fafafa}"
+        "table{border-collapse:collapse;width:100%;background:#fff;font-size:.85rem}"
+        "th,td{border:1px solid #ddd;padding:.35rem .5rem;text-align:right}"
+        ".l{text-align:left}.muted{color:#888}th{background:#f0f0f0}"
+        "textarea{width:100%;font-family:monospace;font-size:.8rem}"
+        "button{padding:.5rem 1rem;font-size:1rem;margin:.4rem 0}</style></head><body>"
+        "<h1>銘柄スクリーニング</h1>"
+        "<p class='muted'>各銘柄を単独でパワーゾーン検証し採用/除外を提案。過去データの目安です（未来を保証しません）。</p>"
+        "<script>const S=\"__S__\";</script>"
+        "<button onclick=\"fetch('/screen/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S})}).then(()=>alert('更新を開始しました。数分後に再読み込みしてください'))\">🔄 今すぐ更新（数分）</button>"
+        f"{body}</body></html>"
+    )
+    return HTMLResponse(page.replace("__S__", secret))
+
+
+@app.post("/screen/refresh")
+async def screen_refresh(request: Request):
+    """スクリーニングを今すぐ再集計（バックグラウンドで実行、即応答）。"""
+    body = await request.json()
+    if not verify_secret(body.get("secret", ""), settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    from . import screener
+    asyncio.create_task(asyncio.to_thread(screener.refresh))
+    return JSONResponse({"status": "refreshing"})
+
+
 @app.post("/powerzones/run")
 async def powerzones_run(request: Request):
     """パワーゾーン評価を今すぐ手動実行（テスト用）。DRY_RUNなら発注せず判定のみ。"""
@@ -244,6 +317,7 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
   <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a> ／
   <a href='/tax?secret=__S__' target='_blank'>🧾 年間損益(税金の目安)</a><br>
   <a href='/powerzones?secret=__S__' target='_blank'>⚡ パワーゾーン状況</a> ／
+  <a href='/screen?secret=__S__' target='_blank'>🔬 銘柄スクリーニング</a> ／
   <a href='/config?secret=__S__' target='_blank'>⚙️ パラメーター調整</a> ／
   <a href='/guide' target='_blank'>📖 通知の見方</a> ／
   <a href='/health' target='_blank'>🩺 稼働状況</a>
