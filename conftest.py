@@ -18,6 +18,7 @@ _TEST_ENV = {
     "MAX_OPEN_POSITIONS": "1",
     "MAX_DAILY_LOSS_JPY": "2000",
     "MAX_DAILY_LOSS_PCT": "0.08",
+    "STRATEGY": "webhook",  # 既定は旧webhook。個別テストは settings.strategy を直接切替える
 }
 for _k, _v in _TEST_ENV.items():
     os.environ.setdefault(_k, _v)

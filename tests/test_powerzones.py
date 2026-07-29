@@ -5,10 +5,6 @@
 """
 from __future__ import annotations
 
-import os
-
-os.environ.setdefault("STRATEGY", "powerzones")
-
 from app.config import settings  # noqa: E402
 from app.indicators import rsi_wilder, sma  # noqa: E402
 from app import powerzones as pz  # noqa: E402
