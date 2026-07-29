@@ -108,6 +108,8 @@ class Settings:
     monitor_interval_sec: int = field(default_factory=lambda: int(_get("MONITOR_INTERVAL_SEC", "60")))
     # Webhookを同期処理するか（テスト用。本番はFalse=即200返してバックグラウンド処理）
     webhook_sync: bool = field(default_factory=lambda: _get("WEBHOOK_SYNC", "false").lower() in ("1", "true", "yes"))
+    # 起動時の「建玉を復元しました」通知を出すか。開発中(頻繁な再デプロイ)は false 推奨。
+    notify_restore: bool = field(default_factory=lambda: _get("NOTIFY_RESTORE", "true").lower() in ("1", "true", "yes"))
     # 取引時間帯(JST)。"8-24"で8:00〜24:00のみ新規買い可。空=24時間（制限なし）
     trading_hours: str = field(default_factory=lambda: _get("TRADING_HOURS", ""))
     # 1日の実現損失がこの額(JPY)を超えたら、その日は新規買いを停止（0=無効）

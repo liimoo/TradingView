@@ -38,6 +38,8 @@ services:
         value: "8"
       - key: ORDER_COOLDOWN_SEC
         value: "60"
+      - key: NOTIFY_RESTORE
+        value: "false" # 再デプロイ時の「建玉を復元しました」通知を出さない（開発中の通知洪水を防ぐ）
       - key: ORDER_ENTRY_TYPE
         value: "limit" # エントリー/サイン決済は指値(maker,手数料節約)。損切り等の安全決済は常に成行
       - key: MAKER_WAIT_SEC

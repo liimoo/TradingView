@@ -42,6 +42,7 @@ async def reconstruct_positions() -> None:
         logger.warning("残高取得に失敗（建玉復元スキップ）: %s", exc)
         return
     free = bal.get("free", {}) or {}
+    restored: list[str] = []   # 復元した建玉（起動時はまとめて1回だけ通知）
     for sym in settings.allowed_symbols:
         # ロングは現物残高から復元（信用銘柄もハイブリッドのロングは現物）
         base = sym.split("/")[0]
@@ -64,7 +65,7 @@ async def reconstruct_positions() -> None:
                 entry = 0.0
         risk_manager.open_position(sym, qty, entry, side="long")
         logger.warning("起動時にロング建玉を復元: %s qty=%s entry=%s", sym, qty, entry)
-        await notify(f"♻️ ロング建玉を復元: {sym} {qty} @ entry≈{entry}")
+        restored.append(f"{sym}(ロング)")
         # 逆指値(stop)の復元は現物銘柄のみ（信用ハイブリッドのロングはサーバ監視）
         if not settings.is_margin(sym) and settings.stop_loss_pct > 0:
             try:
@@ -97,7 +98,11 @@ async def reconstruct_positions() -> None:
             if qty > 0:
                 risk_manager.open_position(pair, qty, entry, side="short")
                 logger.warning("信用ショート建玉を復元: %s qty=%s entry=%s", pair, qty, entry)
-                await notify(f"♻️ 信用ショート建玉を復元: {pair} {qty} @ {entry}")
+                restored.append(f"{pair}(ショート)")
+
+    # 復元した建玉は、1件ずつではなく「まとめて1回」だけ通知（設定でオフ可）
+    if restored and settings.notify_restore:
+        await notify(f"♻️ 建玉を復元しました（{len(restored)}件）: {', '.join(restored)}")
 
 
 async def _do_market_close(sym, pos, px, reason, emoji, label) -> None:
