@@ -115,7 +115,8 @@ async def evaluate_symbol(jpy_symbol: str) -> dict:
 
     if action == "hold":
         return ctx
-    if action in ("buy", "scale") and not risk_manager.precheck(jpy_symbol, "buy").allowed:
+    # 許可チェックは動的な対象銘柄で判断済みなので、precheckのallowed照合は省く
+    if action in ("buy", "scale") and not risk_manager.precheck(jpy_symbol, "buy", check_allowed=False).allowed:
         ctx["action"] = "skipped"
         return ctx
     await _execute(jpy_symbol, action, pos)
@@ -193,10 +194,30 @@ def _n(v) -> str:
     return str(int(v)) if float(v) == int(float(v)) else str(v)
 
 
+def active_universe() -> list[str]:
+    """パワーゾーンが実際に評価する対象銘柄を返す。
+
+    動的モード(pz_dynamic_universe)なら「スクリーニングで総リターン100%以上(採用推奨)」
+    ∪「現在の保有銘柄(100%割れでも決済まで管理)」。スクリーニング未集計時は
+    allowed_symbols にフォールバック。動的モードOFFなら allowed_symbols をそのまま使う。
+    """
+    held = [s for s, p in risk_manager._positions.items() if p.side == "long"]
+    if not settings.pz_dynamic_universe:
+        return list(dict.fromkeys(list(settings.allowed_symbols) + held))
+    try:
+        from . import screener
+        strong = list(screener.get_cached().get("recommend_a") or [])
+    except Exception:  # noqa: BLE001
+        strong = []
+    if not strong:  # 未集計なら固定リストにフォールバック（新規も拾えるように）
+        strong = list(settings.allowed_symbols)
+    return list(dict.fromkeys(strong + held))  # 100%以上 ∪ 保有中（重複除去）
+
+
 async def evaluate_all() -> list[dict]:
-    """全対象銘柄を評価する。"""
+    """対象銘柄（動的）を評価する。"""
     results = []
-    for sym in settings.allowed_symbols:
+    for sym in active_universe():
         results.append(await evaluate_symbol(sym))
         await asyncio.sleep(0.5)  # データ取得のレート配慮
     holds = sum(1 for r in results if r.get("action") == "hold")
@@ -209,7 +230,7 @@ async def signal_status() -> list[dict]:
     """全銘柄の現在のシグナル状況を返す（発注しない・表示用＝チャートの代替）。"""
     need = settings.pz_sma_len + settings.pz_rsi_len + 2
     out = []
-    for sym in settings.allowed_symbols:
+    for sym in active_universe():
         pair = data_pair(sym)
         try:
             closes = await asyncio.to_thread(fetch_closed_closes, pair, need)

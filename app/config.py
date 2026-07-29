@@ -114,6 +114,9 @@ class Settings:
     pz_scale: float = field(default_factory=lambda: float(_get("PZ_SCALE", "25")))    # 買い増し
     pz_exit: float = field(default_factory=lambda: float(_get("PZ_EXIT", "55")))      # 利確
     pz_max_positions: int = field(default_factory=lambda: int(_get("PZ_MAX_POSITIONS", "5")))
+    # 対象銘柄を動的にするか。true=スクリーニングで総リターン100%以上(採用推奨)の銘柄を自動対象に
+    # ＋保有中の銘柄は100%を割っても対象に残す（決済まで管理）。false=allowed_symbols固定。
+    pz_dynamic_universe: bool = field(default_factory=lambda: _get("PZ_DYNAMIC_UNIVERSE", "false").lower() in ("1", "true", "yes"))
     # 判定を回す時刻(JST hour)。カンマ区切りで複数可。例 "9" / "9,21"（朝晩2回=保険）。
     # 日足戦略なので同じ日足を見る限り判断は同じ。複数化は主に「朝の失敗を夜に拾う」信頼性向上のため。
     pz_eval_hours: list = field(default_factory=lambda: _parse_hours(_get("PZ_EVAL_HOURS", _get("PZ_EVAL_HOUR", "9"))))

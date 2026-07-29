@@ -5,9 +5,25 @@
 """
 from __future__ import annotations
 
+import pytest
+
 from app.config import settings  # noqa: E402
 from app.indicators import rsi_wilder, sma  # noqa: E402
 from app import powerzones as pz  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _restore_settings():
+    """各テストが settings/建玉 を書き換えても、他テストへ漏らさないよう元に戻す。"""
+    orig = (list(settings.allowed_symbols), settings.pz_dynamic_universe,
+            dict(settings.pz_data_map), settings.pz_sma_len, settings.pz_rsi_len,
+            settings.pz_entry, settings.pz_scale, settings.pz_exit)
+    yield
+    from app.risk import risk_manager
+    (settings.allowed_symbols, settings.pz_dynamic_universe, settings.pz_data_map,
+     settings.pz_sma_len, settings.pz_rsi_len, settings.pz_entry,
+     settings.pz_scale, settings.pz_exit) = orig
+    risk_manager._positions.clear()
 
 
 # ---- 指標 ----
@@ -124,3 +140,45 @@ def test_seconds_until_eval_multi():
     s = pz._seconds_until_eval()
     assert 0 < s <= 24 * 3600  # 次の評価時刻まで24h以内
     settings.pz_eval_hours = [9]
+
+
+def test_active_universe_static_mode():
+    from app.config import settings
+    from app import powerzones as pz
+    from app.risk import risk_manager
+    risk_manager._positions.clear()
+    settings.pz_dynamic_universe = False
+    settings.allowed_symbols = ["BTC/JPY", "ETH/JPY"]
+    assert pz.active_universe() == ["BTC/JPY", "ETH/JPY"]
+
+
+def test_active_universe_dynamic_includes_strong_and_held(monkeypatch):
+    from app.config import settings
+    from app import powerzones as pz, screener
+    from app.risk import risk_manager
+    risk_manager._positions.clear()
+    settings.pz_dynamic_universe = True
+    settings.allowed_symbols = ["BTC/JPY"]
+    # スクリーニングは XLM/ADA を採用推奨(100%以上)とする
+    monkeypatch.setattr(screener, "get_cached", lambda: {"recommend_a": ["XLM/JPY", "ADA/JPY"]})
+    # SOL を保有中（100%割れでも対象に残るべき）
+    risk_manager.open_position("SOL/JPY", 1.0, 100.0, side="long")
+    uni = pz.active_universe()
+    assert "XLM/JPY" in uni and "ADA/JPY" in uni  # 採用推奨
+    assert "SOL/JPY" in uni                        # 保有中は残る
+    assert "BTC/JPY" not in uni                    # 採用推奨でも保有でもない→対象外
+    risk_manager._positions.clear()
+    settings.pz_dynamic_universe = False
+
+
+def test_active_universe_fallback_when_no_screening(monkeypatch):
+    from app.config import settings
+    from app import powerzones as pz, screener
+    from app.risk import risk_manager
+    risk_manager._positions.clear()
+    settings.pz_dynamic_universe = True
+    settings.allowed_symbols = ["BTC/JPY", "ETH/JPY"]
+    monkeypatch.setattr(screener, "get_cached", lambda: {})  # 未集計
+    uni = pz.active_universe()
+    assert set(uni) == {"BTC/JPY", "ETH/JPY"}  # allowed_symbolsにフォールバック
+    settings.pz_dynamic_universe = False

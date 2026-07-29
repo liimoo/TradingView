@@ -48,6 +48,8 @@ services:
         value: "powerzones" # 新戦略: サーバ計算・日足・ロングのみ(Larry ConnorsのRSIパワーゾーン)
       - key: PZ_MAX_POSITIONS
         value: "5" # 同時保有の上限（サイズ管理でDDを抑える。検証で最良）
+      - key: PZ_DYNAMIC_UNIVERSE
+        value: "true" # 対象銘柄を動的に：スクリーニングで総ﾘﾀｰﾝ100%以上＋保有中を自動対象化
       - key: PZ_EVAL_HOURS
         value: "9,21" # 評価時刻(JST)。朝9時＋夜21時の2回（日足戦略なので判断は同じ、朝の失敗を夜に拾う保険）
       - key: ORDER_ENTRY_TYPE

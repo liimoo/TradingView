@@ -128,12 +128,17 @@ class RiskManager:
         return self._day_entries
 
     # ---- 発注可否の判定 ----
-    def precheck(self, symbol: str, action: str, now: float | None = None) -> RiskDecision:
-        """現物・信用 共通の即時チェック（キルスイッチ・許可シンボル・クールダウン）。"""
+    def precheck(self, symbol: str, action: str, now: float | None = None,
+                 check_allowed: bool = True) -> RiskDecision:
+        """即時チェック（キルスイッチ・許可シンボル・クールダウン）。
+
+        check_allowed=False で許可シンボルの照合を省く（パワーゾーンは動的な対象銘柄を
+        自前で決めるため、allowed_symbols では弾かない）。
+        """
         now = time.time() if now is None else now
         if self.is_killed():
             return RiskDecision(False, "キルスイッチON")
-        if symbol not in settings.allowed_symbols:
+        if check_allowed and symbol not in settings.allowed_symbols:
             return RiskDecision(False, f"許可外シンボル: {symbol}")
         last = self._last_order_ts.get((symbol, action))
         if last is not None and (now - last) < settings.order_cooldown_sec:
