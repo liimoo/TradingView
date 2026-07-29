@@ -237,6 +237,18 @@ _GUIDE_ROWS = [
 ]
 
 
+try:
+    _REVIEW_HTML = (Path(__file__).resolve().parent / "review.html").read_text(encoding="utf-8")
+except Exception:  # noqa: BLE001
+    _REVIEW_HTML = "<!doctype html><meta charset='utf-8'><p>仕様ページは準備中です。</p>"
+
+
+@app.get("/spec")
+async def spec():
+    """システム仕様のまとめ（レビュー用・合言葉不要の公開ページ）。秘密情報は含まない。"""
+    return HTMLResponse(_REVIEW_HTML)
+
+
 @app.get("/guide")
 async def guide():
     """Discord通知の見方（解説ページ・合言葉不要）。"""
