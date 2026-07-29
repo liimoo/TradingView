@@ -3,49 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RSI自動売買システム 仕様書 — レビュー用</title>
+<title>RSIパワーゾーン戦略 実装 — レビュー用</title>
 <style>
   :root {
-    --bg: #f6f8f7;
-    --surface: #ffffff;
-    --surface-2: #eef1f0;
-    --border: #dde2e1;
-    --border-strong: #c6cecc;
-    --ink: #15201e;
-    --ink-2: #53605d;
-    --ink-3: #8b9491;
-    --accent: #0d9488;
-    --accent-ink: #0a6c63;
-    --accent-soft: rgba(13, 148, 136, 0.10);
-    --long: #147a4c;
-    --long-soft: rgba(20, 122, 76, 0.12);
-    --short: #c0392b;
-    --short-soft: rgba(192, 57, 43, 0.10);
-    --warn: #a86611;
-    --warn-soft: rgba(168, 102, 17, 0.12);
+    --bg: #f6f8f7; --surface: #ffffff; --surface-2: #eef1f0; --border: #dde2e1;
+    --border-strong: #c6cecc; --ink: #15201e; --ink-2: #53605d; --ink-3: #8b9491;
+    --accent: #0d9488; --accent-ink: #0a6c63; --accent-soft: rgba(13, 148, 136, 0.10);
+    --long: #147a4c; --long-soft: rgba(20, 122, 76, 0.12); --short: #c0392b;
+    --short-soft: rgba(192, 57, 43, 0.10); --warn: #a86611; --warn-soft: rgba(168, 102, 17, 0.12);
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
     --sans: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
     --maxw: 60rem;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0d1413;
-      --surface: #141d1b;
-      --surface-2: #1b2624;
-      --border: #29332f;
-      --border-strong: #38443f;
-      --ink: #e7edeb;
-      --ink-2: #9ca9a5;
-      --ink-3: #6a7571;
-      --accent: #2dd4bf;
-      --accent-ink: #5ee0d0;
-      --accent-soft: rgba(45, 212, 191, 0.12);
-      --long: #3ec17f;
-      --long-soft: rgba(62, 193, 127, 0.14);
-      --short: #f0705f;
-      --short-soft: rgba(240, 112, 95, 0.13);
-      --warn: #e0a94a;
-      --warn-soft: rgba(224, 169, 74, 0.14);
+      --bg: #0d1413; --surface: #141d1b; --surface-2: #1b2624; --border: #29332f;
+      --border-strong: #38443f; --ink: #e7edeb; --ink-2: #9ca9a5; --ink-3: #6a7571;
+      --accent: #2dd4bf; --accent-ink: #5ee0d0; --accent-soft: rgba(45, 212, 191, 0.12);
+      --long: #3ec17f; --long-soft: rgba(62, 193, 127, 0.14); --short: #f0705f;
+      --short-soft: rgba(240, 112, 95, 0.13); --warn: #e0a94a; --warn-soft: rgba(224, 169, 74, 0.14);
     }
   }
   :root[data-theme="light"] {
@@ -62,99 +38,39 @@
     --long: #3ec17f; --long-soft: rgba(62,193,127,0.14); --short: #f0705f;
     --short-soft: rgba(240,112,95,0.13); --warn: #e0a94a; --warn-soft: rgba(224,169,74,0.14);
   }
-
   * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--ink);
-    font-family: var(--sans);
-    line-height: 1.65;
-    -webkit-font-smoothing: antialiased;
-  }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.65; -webkit-font-smoothing: antialiased; }
   .wrap { max-width: var(--maxw); margin: 0 auto; padding: clamp(1.4rem, 4vw, 3.5rem) clamp(1.1rem, 4vw, 2rem) 5rem; }
-
-  /* Header */
   .masthead { border-bottom: 2px solid var(--ink); padding-bottom: 1.4rem; margin-bottom: 2.2rem; }
-  .eyebrow {
-    font-family: var(--mono);
-    font-size: 0.72rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--accent-ink);
-    margin: 0 0 0.7rem;
-    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
-  }
-  .eyebrow .live {
-    color: var(--long);
-    display: inline-flex; align-items: center; gap: 0.35rem;
-  }
+  .eyebrow { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent-ink); margin: 0 0 0.7rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+  .eyebrow .live { color: var(--long); display: inline-flex; align-items: center; gap: 0.35rem; }
   .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 0 currentColor; animation: pulse 2.6s ease-out infinite; }
   @keyframes pulse { 0% { box-shadow: 0 0 0 0 var(--long-soft); } 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
   @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
-  h1 {
-    font-size: clamp(1.7rem, 5vw, 2.7rem);
-    line-height: 1.12;
-    letter-spacing: -0.02em;
-    text-wrap: balance;
-    margin: 0 0 0.5rem;
-    font-weight: 720;
-  }
+  h1 { font-size: clamp(1.7rem, 5vw, 2.7rem); line-height: 1.12; letter-spacing: -0.02em; text-wrap: balance; margin: 0 0 0.5rem; font-weight: 720; }
   .lede { color: var(--ink-2); font-size: 1.02rem; max-width: 44rem; margin: 0; }
   .meta-row { margin-top: 1.1rem; font-family: var(--mono); font-size: 0.76rem; color: var(--ink-3); display: flex; gap: 1.2rem; flex-wrap: wrap; }
   .meta-row b { color: var(--ink-2); font-weight: 600; }
-
-  /* Snapshot band */
-  .snapshot {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(8.2rem, 1fr));
-    gap: 1px;
-    background: var(--border);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-    margin: 0 0 2.6rem;
-  }
+  .snapshot { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.2rem, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 0 0 2.6rem; }
   .stat { background: var(--surface); padding: 0.95rem 1rem; }
   .stat .k { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 0.35rem; }
   .stat .v { font-family: var(--mono); font-size: 1.32rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-  .v.neg { color: var(--short); }
-  .v.pos { color: var(--long); }
-
+  .v.neg { color: var(--short); } .v.pos { color: var(--long); }
   section { margin-bottom: 2.9rem; }
-  h2 {
-    font-size: 1.16rem;
-    letter-spacing: -0.01em;
-    margin: 0 0 0.4rem;
-    display: flex; align-items: baseline; gap: 0.7rem;
-  }
+  h2 { font-size: 1.16rem; letter-spacing: -0.01em; margin: 0 0 0.4rem; display: flex; align-items: baseline; gap: 0.7rem; }
   h2 .num { font-family: var(--mono); font-size: 0.8rem; color: var(--accent-ink); font-weight: 600; }
   .sec-sub { color: var(--ink-2); margin: 0 0 1.3rem; font-size: 0.95rem; }
   h3 { font-size: 0.96rem; margin: 1.6rem 0 0.5rem; letter-spacing: -0.005em; }
   p { margin: 0 0 0.9rem; }
   a { color: var(--accent-ink); }
-
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1.2rem 1.35rem;
-  }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.2rem 1.35rem; }
   .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; }
-
-  /* Pipeline */
   .pipe { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.55rem; margin: 0.4rem 0 0.3rem; }
-  .node {
-    flex: 1 1 8.5rem;
-    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 9px;
-    padding: 0.75rem 0.85rem; min-width: 0;
-  }
+  .node { flex: 1 1 8.5rem; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 9px; padding: 0.75rem 0.85rem; min-width: 0; }
   .node .t { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-ink); margin-bottom: 0.28rem; }
   .node .d { font-size: 0.82rem; color: var(--ink-2); line-height: 1.4; }
   .arrow { align-self: center; color: var(--ink-3); font-family: var(--mono); font-size: 1rem; flex: 0 0 auto; }
   @media (max-width: 640px) { .arrow { transform: rotate(90deg); width: 100%; text-align: center; } }
-
-  /* Tables */
   .tbl-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
   table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
   th, td { text-align: left; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); }
@@ -164,173 +80,176 @@
   td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
   td .mono, code { font-family: var(--mono); }
   code { background: var(--surface-2); padding: 0.08em 0.4em; border-radius: 4px; font-size: 0.85em; }
-
   .tag { display: inline-block; font-family: var(--mono); font-size: 0.7rem; padding: 0.12rem 0.5rem; border-radius: 999px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; }
   .tag.long { background: var(--long-soft); color: var(--long); }
-  .tag.short { background: var(--short-soft); color: var(--short); }
   .tag.spot { background: var(--accent-soft); color: var(--accent-ink); }
-
   ul.clean { margin: 0.2rem 0 0; padding-left: 1.15rem; }
   ul.clean li { margin-bottom: 0.5rem; }
   ul.clean li::marker { color: var(--accent); }
-
-  /* Callout for open questions */
   .q { counter-reset: q; display: grid; gap: 0.7rem; }
-  .qitem {
-    background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent);
-    border-radius: 8px; padding: 0.9rem 1.1rem 0.9rem 1.15rem;
-  }
+  .qitem { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 0.9rem 1.1rem 0.9rem 1.15rem; }
   .qitem h4 { margin: 0 0 0.3rem; font-size: 0.94rem; display: flex; gap: 0.55rem; align-items: baseline; }
   .qitem h4::before { counter-increment: q; content: "Q" counter(q); font-family: var(--mono); font-size: 0.72rem; color: var(--accent-ink); font-weight: 700; flex: 0 0 auto; }
   .qitem p { margin: 0; font-size: 0.88rem; color: var(--ink-2); }
-
   .note { background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); border-radius: 9px; padding: 0.85rem 1.1rem; font-size: 0.86rem; color: var(--ink); }
   .note b { color: var(--warn); }
-
   .foot { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 0.72rem; color: var(--ink-3); }
-  .kbd { font-family: var(--mono); color: var(--ink-2); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="masthead">
-    <p class="eyebrow"><span class="live"><span class="dot"></span>LIVE / 本番少額</span> <span>·</span> <span>暗号資産アルゴ売買システム</span></p>
-    <h1>RSI逆張り 自動売買システム — レビュー用まとめ</h1>
-    <p class="lede">TradingViewのRSIシグナルで、bitbankの暗号資産を自動売買する個人用ボットです。<b>専門家の長さんにロジックを見てもらい、助言をいただく</b>ための技術サマリーです。忌憚のないご意見をいただけると助かります。</p>
+    <p class="eyebrow"><span class="live"><span class="dot"></span>LIVE / 移行直後・待機中</span> <span>·</span> <span>RSIパワーゾーン戦略</span></p>
+    <h1>RSIパワーゾーン戦略 — 実装レビュー用</h1>
+    <p class="lede">長さんに教わった <b>Larry Connors の RSIパワーゾーン</b> を、暗号資産（bitbank現物）に実装しました。旧戦略（15分RSI逆張り）から全面移行済みです。<b>実装が意図通りか、暗号資産への応用として妥当か</b>、改めてご意見をいただけると助かります。</p>
     <div class="meta-row">
-      <span><b>戦略</b> RSI(14) 逆張り</span>
-      <span><b>足</b> 15分</span>
-      <span><b>取引所</b> bitbank (現物＋信用)</span>
-      <span><b>基盤</b> Python / FastAPI / ccxt</span>
-      <span><b>時点</b> 稼働 約9日</span>
+      <span><b>戦略</b> RSIパワーゾーン</span>
+      <span><b>方向</b> ロングのみ(現物)</span>
+      <span><b>足</b> 日足</span>
+      <span><b>計算</b> サーバ(Python)・TradingView不要</span>
+      <span><b>執行</b> bitbank JPY現物</span>
     </div>
   </header>
 
-  <div class="snapshot" role="group" aria-label="現況サマリー">
-    <div class="stat"><div class="k">実現損益(概算)</div><div class="v neg">−¥1,218</div></div>
-    <div class="stat"><div class="k">うち手数料</div><div class="v">¥449</div></div>
-    <div class="stat"><div class="k">決済回数</div><div class="v">81</div></div>
-    <div class="stat"><div class="k">保有建玉</div><div class="v">6</div></div>
-    <div class="stat"><div class="k">1回の建玉</div><div class="v">総資産10%</div></div>
-    <div class="stat"><div class="k">検証資金</div><div class="v">数万円</div></div>
+  <div class="snapshot" role="group" aria-label="サマリー">
+    <div class="stat"><div class="k">検証勝率</div><div class="v">73%</div></div>
+    <div class="stat"><div class="k">検証 年率(概算)</div><div class="v pos">+15%</div></div>
+    <div class="stat"><div class="k">検証 最大DD</div><div class="v neg">−33%</div></div>
+    <div class="stat"><div class="k">1建玉サイズ</div><div class="v">10%</div></div>
+    <div class="stat"><div class="k">同時保有</div><div class="v">5</div></div>
+    <div class="stat"><div class="k">現在</div><div class="v">待機</div></div>
   </div>
 
   <section>
     <h2><span class="num">01</span> 概要・狙い</h2>
-    <p class="sec-sub">「売られすぎ・買われすぎ」を突く逆張り（平均回帰）戦略を、24時間動く暗号資産で自動化したものです。</p>
+    <p class="sec-sub">「恐怖の高まりで買い、強欲で売る」。上昇トレンド途上の売られすぎだけを機械的に拾う戦略。</p>
     <div class="grid-2">
       <div class="card">
         <h3 style="margin-top:0">基本アイデア</h3>
-        <p style="margin-bottom:0;color:var(--ink-2);font-size:0.9rem">RSIが<b>30を下抜け＝売られすぎ</b>で買い（ロング）、<b>70を上抜け＝買われすぎ</b>で売り（ショート）。「行き過ぎは戻る」に賭ける。反対サインが来たら決済して<b>ドテン</b>（乗り換え）する。</p>
+        <p style="margin-bottom:0;color:var(--ink-2);font-size:0.9rem">長期上昇トレンド（<b>200日SMAより上</b>）にある銘柄が、<b>4期間RSIで売られすぎ</b>になった時だけ買う。恐怖でオーバーシュートした反発を取る。下落トレンドでは手を出さない。</p>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">なぜ旧戦略から乗り換えたか</h3>
+        <p style="margin-bottom:0;color:var(--ink-2);font-size:0.9rem">旧15分逆張りは <b>手数料負け・下落相場での連続逆行・信用の複雑さ</b> で薄利/マイナスだった。パワーゾーンはこの3つを構造的に解消する（下記④）。</p>
       </div>
     </div>
   </section>
 
   <section>
     <h2><span class="num">02</span> システム構成</h2>
-    <p class="sec-sub">シグナル判定は外部（TradingView）に任せ、中継サーバが認証・リスク制御・発注・通知を担う。</p>
+    <p class="sec-sub">サーバが毎日1回、日足で指標を計算して自動売買。TradingViewは使わない。</p>
     <div class="pipe">
-      <div class="node"><div class="t">TradingView</div><div class="d">RSI(14)の30/70交差でWebhookアラート発火（15分足・終値確定時）</div></div>
+      <div class="node"><div class="t">日足データ</div><div class="d">Binanceの日足(USDT)を取得。長期・安定でJPYペアとほぼ同形</div></div>
       <div class="arrow">→</div>
-      <div class="node"><div class="t">中継サーバ</div><div class="d">FastAPI on Render（常時起動）。secret認証→リスク判定→発注</div></div>
+      <div class="node"><div class="t">サーバ計算</div><div class="d">200日SMA＋4期間RSIを計算し、毎日9:00 JSTにルール判定</div></div>
       <div class="arrow">→</div>
-      <div class="node"><div class="t">ccxt</div><div class="d">取引所APIラッパ。発注/残高/建玉/約定を統一的に扱う</div></div>
-      <div class="arrow">→</div>
-      <div class="node"><div class="t">bitbank</div><div class="d">現物ロング＋信用ショートを実発注</div></div>
+      <div class="node"><div class="t">bitbank</div><div class="d">JPY現物を指値(maker)で執行。買い/買い増し/利確</div></div>
     </div>
-    <p style="margin-top:1rem;font-size:0.9rem;color:var(--ink-2)">補足: Webhookは即200を返し、発注は背景タスクで直列処理（TradingViewのタイムアウト回避）。約定/見送り/エラーは全てDiscordへ通知。共有secretで認証。発注サイズや損切り率などは稼働中に変更可能。</p>
+    <p style="margin-top:1rem;font-size:0.9rem;color:var(--ink-2)">補足: バックテストと本番は<b>同一のPythonロジック</b>（＝検証通りに動く）。旧TradingViewアラートは無視。全操作はDiscord通知＆ブラウザの状況ページで確認。</p>
   </section>
 
-
-
   <section>
-    <h2><span class="num">03</span> パラメーター</h2>
-    <p class="sec-sub">稼働中に調整可能。現在値は下記。</p>
+    <h2><span class="num">03</span> 売買ルール（すべて日足の確定終値で判定）</h2>
     <div class="tbl-scroll">
       <table>
-        <thead><tr><th>項目</th><th class="num">現在値</th><th>意味</th></tr></thead>
+        <thead><tr><th>#</th><th>条件</th><th>行動</th></tr></thead>
         <tbody>
-          <tr><td>時間足</td><td class="num">15分</td><td>RSI判定の足</td></tr>
-          <tr><td>RSI閾値</td><td class="num">30 / 70</td><td>買い / 売り</td></tr>
-          <tr><td>1建玉サイズ</td><td class="num">総資産 10%</td><td>使える現金で上限キャップ</td></tr>
-          <tr><td>同時建玉上限</td><td class="num">8</td><td>並行して持てる銘柄数</td></tr>
-          <tr><td>損切り</td><td class="num">−5%</td><td>取得単価から</td></tr>
-          <tr><td>利確</td><td class="num">+5%</td><td>取得単価から</td></tr>
-          <tr><td>1日の損失上限</td><td class="num">総資産 8%</td><td>超過で当日の新規建て停止</td></tr>
-          <tr><td>連続発注クールダウン</td><td class="num">60秒</td><td>二重/連打防止</td></tr>
-          <tr><td>指値待ち</td><td class="num">25秒</td><td>未約定で成行へ</td></tr>
-          <tr><td>監視間隔</td><td class="num">60秒</td><td>損切り/利確の判定周期</td></tr>
+          <tr><td class="num">前提</td><td>終値が <b>200日SMAより上</b></td><td>この時だけ買いを許可（トレンドフィルタ）</td></tr>
+          <tr><td class="num">①</td><td>4期間RSI <code>&lt; 30</code></td><td>現物を買い（新規）</td></tr>
+          <tr><td class="num">②</td><td>保有中に4期間RSI <code>&lt; 25</code></td><td>同額を1回だけ買い増し（2倍）</td></tr>
+          <tr><td class="num">③</td><td>4期間RSI <code>&gt; 55</code></td><td>全部売って利確</td></tr>
+          <tr><td class="num">—</td><td>損切り</td><td class="mono">置かない（下記⑤）</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:1rem;font-size:0.9rem;color:var(--ink-2)">原典の平均保有 約5取引日の中期戦略。※原典の利確はRSI>55（旧戦略の70とは別）。</p>
+  </section>
+
+  <section>
+    <h2><span class="num">04</span> 旧戦略との違い（何が解決したか）</h2>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>項目</th><th>旧: 15分RSI逆張り</th><th>新: パワーゾーン</th></tr></thead>
+        <tbody>
+          <tr><td>足 / 頻度</td><td>15分・高頻度</td><td><b>日足・低頻度</b>（手数料が効かない）</td></tr>
+          <tr><td>トレンド判定</td><td>なし（下落でも逆張り）</td><td><b>200日SMA</b>で上昇時のみ</td></tr>
+          <tr><td>方向</td><td>ロング＋信用ショート</td><td><b>ロング現物のみ</b>（単純・安全）</td></tr>
+          <tr><td>買い増し</td><td>なし</td><td>RSI&lt;25で1回</td></tr>
+          <tr><td>利確</td><td>RSI&gt;70 / ±5%</td><td>RSI&gt;55</td></tr>
+          <tr><td>結果</td><td>薄利〜マイナス</td><td>検証で改善（下記⑥）</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
   <section>
-    <h2><span class="num">04</span> 銘柄ユニバース</h2>
-    <p class="sec-sub">全10銘柄（JPYペア）。信用対応はbitbank側の制約で5銘柄のみ、残りは現物ロング専用。</p>
-    <div class="tbl-scroll">
-      <table>
-        <thead><tr><th>区分</th><th>銘柄</th><th>取れる方向</th></tr></thead>
-        <tbody>
-          <tr><td><span class="tag long">信用対応</span></td><td class="mono">BTC · ETH · XRP · SOL · DOGE</td><td>ロング＆ショート（現物ロング＋信用ショート）</td></tr>
-          <tr><td><span class="tag spot">現物のみ</span></td><td class="mono">DOT · ATOM · LINK · LTC · AVAX</td><td>ロングのみ（売りサインは建玉があれば決済）</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section>
-    <h2><span class="num">05</span> リスク管理</h2>
+    <h2><span class="num">05</span> リスク管理 — 損切りではなくサイズで</h2>
     <div class="grid-2">
       <div class="card">
-        <ul class="clean" style="margin:0">
-          <li><b>損切り/利確</b> ±5%（成行で確実に決済）</li>
-          <li><b>1日の損失上限</b> 総資産の8%で当日停止</li>
-          <li><b>同時建玉上限</b> 8銘柄まで</li>
-        </ul>
+        <h3 style="margin-top:0">損切りは"入れない"</h3>
+        <p style="margin-bottom:0;color:var(--ink-2);font-size:0.9rem">平均回帰戦略に損切りを入れると、<b>戻る直前で損を確定</b>して逆効果。バックテストでも損切り追加で平均リターン低下・DD増加を確認（原典も損切り非推奨）。</p>
       </div>
       <div class="card">
-        <ul class="clean" style="margin:0">
-          <li><b>キルスイッチ</b> 全発注を即停止</li>
-          <li><b>建玉復元</b> 再起動時に取引所残高から建玉を再構築</li>
-          <li><b>直列化</b> 取引所アクセスをロックで排他（nonce衝突防止）</li>
-        </ul>
+        <h3 style="margin-top:0">サイズで制御</h3>
+        <p style="margin-bottom:0;color:var(--ink-2);font-size:0.9rem"><b>1建玉=総資産の10%</b>、<b>同時5銘柄まで</b>。小さめ・分散でポートフォリオ全体のドローダウンを抑える（検証で10%×5が最良）。</p>
       </div>
     </div>
   </section>
 
   <section>
-    <h2><span class="num">06</span> 実績（正直値・約9日）</h2>
-    <p class="sec-sub">数万円の少額検証。結論から言うと、現時点は<b>マイナス</b>。手数料に加え、直近は値幅の稼ぎ自体もマイナス圏。</p>
+    <h2><span class="num">06</span> バックテスト（暗号資産で検証）</h2>
+    <p class="sec-sub">Binance日足 2018〜2026・10銘柄・手数料込み。原典はETFだが、暗号資産で機能するかを確認。</p>
     <div class="tbl-scroll">
       <table>
-        <thead><tr><th>指標</th><th class="num">2〜3日目</th><th class="num">5日目</th><th class="num">現在(約9日)</th></tr></thead>
+        <thead><tr><th>指標</th><th class="num">1銘柄フル</th><th class="num">ポート(10%×5銘柄)</th></tr></thead>
         <tbody>
-          <tr><td>実現損益(手数料後)</td><td class="num" style="color:var(--long)">+¥189</td><td class="num" style="color:var(--short)">−¥271</td><td class="num" style="color:var(--short)">−¥1,218</td></tr>
-          <tr><td>値差益(手数料前)</td><td class="num">+¥348</td><td class="num">+¥48</td><td class="num" style="color:var(--short)">−¥769</td></tr>
-          <tr><td>手数料</td><td class="num">¥160</td><td class="num">¥319</td><td class="num">¥449</td></tr>
-          <tr><td>決済回数</td><td class="num">13</td><td class="num">44</td><td class="num">81</td></tr>
+          <tr><td>勝率</td><td class="num">73.4%</td><td class="num">—</td></tr>
+          <tr><td>1トレード平均</td><td class="num" style="color:var(--long)">+3.14%</td><td class="num">—</td></tr>
+          <tr><td>年率(概算)</td><td class="num">—</td><td class="num" style="color:var(--long)">+14.8%</td></tr>
+          <tr><td>最大ドローダウン</td><td class="num" style="color:var(--short)">−37〜53%</td><td class="num" style="color:var(--short)">−33%</td></tr>
         </tbody>
       </table>
     </div>
-    <p style="margin-top:1rem;font-size:0.9rem;color:var(--ink-2)">傾向: 勝率は概ね<b>55〜58%</b>だが、<b>平均の勝ち &lt; 平均の負け</b>（フリップが勝ちを早く刈り、負けは膨らむ）。加えて手数料が薄利を削る。直近は相場全体の下落局面で逆張りが連続逆行した影響も。</p>
+    <div class="note" style="margin-top:1rem"><b>正直な前提:</b> 原典（米国ETF）は勝率90%超。暗号資産では<b>73%に低下</b>し、移植で数字はそのまま出ない。検証は上昇相場寄り・生存バイアスあり。<b>最大DD −33%（口座が3分の1目減り）は将来超える可能性も</b>。ここをどう見るかが相談点。</div>
   </section>
 
   <section>
-    <h2><span class="num">07</span> ご相談したい論点</h2>
-    <p class="sec-sub">特にご意見を伺いたいポイントです。全体観・優先順位も含めて、率直な指摘を歓迎します。</p>
-    <div class="q">
-      <div class="qitem"><h4>手数料負けの構造</h4><p>薄利多売＋逆張りは、この設計だと手数料に勝てないのでは？ 指値(maker)化で改善する見込みか、それとも取引回数を絞る/利幅を狙う方向に変えるべきか。</p></div>
-      <div class="qitem"><h4>逆張り × トレンド相場</h4><p>RSI30/70の逆張りは強トレンドで連続逆行する弱点がある。トレンドフィルター（移動平均・ADX等）や順張り要素の併用は有効か。</p></div>
-      <div class="qitem"><h4>銘柄の高相関</h4><p>暗号資産は一斉に動くため、8銘柄ロングでも実質「市場方向への1つの賭け」に近い。分散になっていない前提で、銘柄数やサイズはどう設計すべきか。</p></div>
-      <div class="qitem"><h4>パラメーター最適化</h4><p>時間足(15分)・RSI閾値(30/70)・サイズ(10%)は妥当か。過剰最適化を避けつつ、まず何をどう検証すべきか（バックテスト設計含む）。</p></div>
+    <h2><span class="num">07</span> 銘柄ユニバース</h2>
+    <p class="sec-sub">流動性のある10銘柄・すべて現物ロングのみ。同時保有は5まで。</p>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>区分</th><th>銘柄</th></tr></thead>
+        <tbody>
+          <tr><td><span class="tag long">現物ロング</span></td><td class="mono">BTC · ETH · XRP · SOL · DOGE · DOT · ATOM · LINK · LTC · AVAX</td></tr>
+        </tbody>
+      </table>
     </div>
   </section>
 
+  <section>
+    <h2><span class="num">08</span> 現在の状況</h2>
+    <p class="sec-sub">移行完了。口座はフラット（全部現金）から再スタート。</p>
+    <div class="card">
+      <p style="margin-bottom:0;color:var(--ink-2);font-size:0.92rem">切替時に旧建玉7件を全決済し、クリーンな状態でパワーゾーンを稼働開始。<b>現時点は全銘柄が200日SMAの"下"</b>なので、戦略は「買わずに待機（hold）」。相場が上向いて条件が揃うまで数週間ゼロ取引が続く見込みで、これが正常動作（＝下落相場の逆張りを回避）。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">09</span> ご相談したい論点</h2>
+    <p class="sec-sub">特にご意見を伺いたい点です。率直な指摘を歓迎します。</p>
+    <div class="q">
+      <div class="qitem"><h4>暗号資産への応用の妥当性</h4><p>原典は米国ETF。暗号資産（荒い・24時間・ファンダが別物）に同じルールを当てて良いか。勝率73%・DD−33%という数字をどう評価するか。</p></div>
+      <div class="qitem"><h4>ドローダウン −33% の許容とサイズ</h4><p>損切りなし＋サイズ管理という設計は妥当か。1建玉10%・同時5銘柄で良いか、もっと絞る/分けるべきか。将来DDが−33%を超えた時の考え方。</p></div>
+      <div class="qitem"><h4>シグナル源（USDT建て → JPY執行）</h4><p>シグナルはBinanceのUSDT日足で計算し、執行はbitbankのJPY現物。この"ズレ"は許容範囲か、実際のJPYペアで計算すべきか。</p></div>
+      <div class="qitem"><h4>銘柄選定</h4><p>10銘柄すべて対象で良いか、BTC/ETHなど"ETFに近い"主要銘柄に絞るべきか。アルトの荒さはエッジを歪めないか。</p></div>
+      <div class="qitem"><h4>エントリー閾値</h4><p>基本(30/25/55)か、厳しめ(25/20/55)か。検証では厳しめの方が1トレード平均が高かったが、取引数は減る。</p></div>
+      <div class="qitem"><h4>下落相場での"待機"</h4><p>今のように長期間ゼロ取引になるのは想定通り。この待機は許容すべきか、弱気相場向けの補完（別戦略/現金の置き場）を考えるべきか。</p></div>
+    </div>
+  </section>
 
   <div class="foot">
-    RSI Mean-Reversion Trading System · 個人検証プロジェクト · レビュー用サマリー<br>
-    表示テーマはお使いの端末（OS）のライト/ダーク設定に追従します。数値は作成時点のスナップショットです。
+    RSI PowerZones Strategy · 個人検証プロジェクト · 実装レビュー用<br>
+    表示テーマはお使いの端末のライト/ダーク設定に追従します。数値は作成時点のスナップショット。
   </div>
 </div>
 </body>
