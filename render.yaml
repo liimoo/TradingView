@@ -64,6 +64,12 @@ services:
         value: "0" # パワーゾーンは損切りなし（平均回帰では逆効果と検証済み。リスクはサイズで管理）
       - key: TAKE_PROFIT_PCT
         value: "0" # パワーゾーンの利確はRSI>55で行うため、±%の利確は使わない
+      - key: STOCKS_ENABLED
+        value: "true" # 株モニター(米ETF/米株/日本株)を日次でDiscord通知。売買はしない＝手動判断用
+      - key: STOCKS_EVAL_HOURS
+        value: "7" # 通知時刻(JST)。7時＝米国クローズ後・日本オープン前で確定終値が揃う
+      - key: STOCKS_NEAR_RSI
+        value: "35" # 「もうすぐ買い」ウォッチリストのRSI閾値（買い30の一歩手前）
       - key: MONITOR_INTERVAL_SEC
         value: "60"
       - key: MAX_DAILY_LOSS_JPY

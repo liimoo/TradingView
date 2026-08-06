@@ -74,6 +74,10 @@ async def lifespan(app: FastAPI):
     else:
         # 旧戦略: ±5%損切り/利確の監視ループを開始
         tasks.append(asyncio.create_task(monitor.exit_monitor_loop()))
+    # 株モニター（通知のみ・売買しない）。戦略とは独立して動く
+    if settings.stocks_enabled:
+        from . import stocks
+        tasks.append(asyncio.create_task(stocks.stocks_loop()))
     try:
         yield
     finally:
@@ -277,6 +281,72 @@ async def powerzones_run(request: Request):
     return JSONResponse({"ran": True, "results": results})
 
 
+@app.get("/stocks")
+async def stocks_status(secret: str = "", format: str = "html"):
+    """株モニターの現在シグナル状況（米ETF/米株/日本株・通知のみ、売買しない）。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    from . import stocks
+    rows = await stocks.signal_status()
+    if format == "json":
+        return JSONResponse({"enabled": settings.stocks_enabled,
+                             "eval_hours": settings.stocks_eval_hours, "rows": rows})
+    esc = html_lib.escape
+
+    def cell(r):
+        if r.get("error"):
+            return (f"<tr><td class='l'>{esc(r['ticker'])}</td><td class='l'>{esc(r['name'])}</td>"
+                    f"<td class='l muted' colspan='3'>{esc(r['error'])}</td></tr>")
+        if r.get("buy"):
+            sig = "🟢 買いゾーン"
+        elif r.get("near"):
+            sig = "🟡 もうすぐ"
+        elif r.get("exit_zone"):
+            sig = "💰 利確ゾーン"
+        else:
+            sig = "—"
+        trend = "🟢 上" if r.get("above_sma") else ("🔴 下" if r.get("above_sma") is not None else "-")
+        rsi = "-" if r.get("rsi4") is None else r["rsi4"]
+        return (f"<tr><td class='l'>{esc(r['ticker'])}</td><td class='l'>{esc(r['name'])}</td>"
+                f"<td>{rsi}</td><td class='l'>{trend}</td><td class='l'>{sig}</td></tr>")
+
+    body = "".join(cell(r) for r in rows)
+    hours = "/".join(f"{h}:00" for h in settings.stocks_eval_hours)
+    page = (
+        "<!doctype html><html lang='ja'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>株モニター</title><style>"
+        "body{font-family:-apple-system,sans-serif;margin:1.2rem;color:#111;background:#fafafa}"
+        "table{border-collapse:collapse;width:100%;background:#fff;font-size:.9rem}"
+        "th,td{border:1px solid #ddd;padding:.45rem .6rem;text-align:right}"
+        ".l{text-align:left}.muted{color:#888}th{background:#f0f0f0}"
+        "button{padding:.5rem 1rem;font-size:1rem;margin:.4rem 0}</style></head><body>"
+        f"<h1>📈 株モニター（通知のみ）</h1>"
+        f"<p class='muted'>200日SMAより上 かつ 4期間RSI&lt;{int(settings.pz_entry)}で「買いゾーン」／"
+        f"RSI&lt;{int(settings.stocks_near_rsi)}で「もうすぐ」。毎日 JST {hours} にDiscord通知。"
+        f"{'' if settings.stocks_enabled else '（現在オフ）'}<br>"
+        "※これは通知のみです。売買はご自身の証券会社(SBI/楽天等)で手動判断してください。</p>"
+        "<script>const S=\"__S__\";</script>"
+        "<button onclick=\"fetch('/stocks/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S})}).then(r=>r.json()).then(d=>alert('今すぐレポート送信: '+JSON.stringify(d)))\">📨 今すぐレポートを送る</button>"
+        "<table><tr><th class='l'>銘柄</th><th class='l'>名称</th><th>4期間RSI</th>"
+        f"<th class='l'>200日線</th><th class='l'>シグナル</th></tr>{body}</table>"
+        "<p class='muted'>データ源: Yahoo Finance（日足・無料）。RSI/トレンドは日足終値基準。</p>"
+        "</body></html>"
+    )
+    return HTMLResponse(page.replace("__S__", secret))
+
+
+@app.post("/stocks/run")
+async def stocks_run(request: Request):
+    """株モニターを今すぐ実行してDiscordへレポート送信（手動テスト用）。"""
+    body = await request.json()
+    if not verify_secret(body.get("secret", ""), settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    from . import stocks
+    summary = await stocks.run_and_notify()
+    return JSONResponse({"ran": True, **summary})
+
+
 @app.get("/tax")
 async def tax_endpoint(secret: str = "", format: str = "html", year: int = 0):
     """年間損益サマリー（確定申告の把握・目安用）。?format=json / ?format=csv も可。?year=2026 で年指定。"""
@@ -320,6 +390,7 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
   <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a> ／
   <a href='/tax?secret=__S__' target='_blank'>🧾 年間損益(税金の目安)</a><br>
   <a href='/powerzones?secret=__S__' target='_blank'>⚡ パワーゾーン状況</a> ／
+  <a href='/stocks?secret=__S__' target='_blank'>📈 株モニター</a> ／
   <a href='/screen?secret=__S__' target='_blank'>🔬 銘柄スクリーニング</a> ／
   <a href='/config?secret=__S__' target='_blank'>⚙️ パラメーター調整</a> ／
   <a href='/guide' target='_blank'>📖 通知の見方</a> ／

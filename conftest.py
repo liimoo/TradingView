@@ -23,6 +23,7 @@ _TEST_ENV = {
     # 実送信してしまう事故（テスト実行のたびに通知が飛ぶ）を、この2つで確実に防ぐ。
     "NOTIFY_ENABLED": "false",
     "DISCORD_WEBHOOK_URL": "",
+    "STOCKS_ENABLED": "false",  # テストで株モニターのループ/ネット取得を起動しない
 }
 for _k, _v in _TEST_ENV.items():
     os.environ.setdefault(_k, _v)

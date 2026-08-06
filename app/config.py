@@ -103,6 +103,14 @@ class Settings:
     rsi_oversold: float = field(default_factory=lambda: float(_get("RSI_OVERSOLD", "30")))
     rsi_overbought: float = field(default_factory=lambda: float(_get("RSI_OVERBOUGHT", "70")))
 
+    # ===== 株モニター（米ETF/米株/日本株を日次で通知。売買はしない＝手動判断用） =====
+    # true=毎日 stocks_eval_hours に Yahoo Finance の日足でパワーゾーンを判定しDiscord通知。
+    stocks_enabled: bool = field(default_factory=lambda: _get("STOCKS_ENABLED", "false").lower() in ("1", "true", "yes"))
+    # 通知時刻(JST hour)。カンマ区切りで複数可。既定7時（米国クローズ後・日本オープン前で確定終値が揃う）。
+    stocks_eval_hours: list = field(default_factory=lambda: _parse_hours(_get("STOCKS_EVAL_HOURS", "7")))
+    # 「もうすぐ買い」ウォッチリストのRSI閾値（買い30の一歩手前）。
+    stocks_near_rsi: float = field(default_factory=lambda: float(_get("STOCKS_NEAR_RSI", "35")))
+
     # ===== 戦略モード =====
     # "webhook" = 旧: TradingViewのRSIアラートを受けて売買（15分逆張り・ロング+ショート）
     # "powerzones" = 新: サーバが日足でLarry ConnorsのRSIパワーゾーンを計算し売買（ロングのみ）
