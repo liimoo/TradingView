@@ -330,7 +330,7 @@ async def stocks_status(secret: str = "", format: str = "html"):
         "<button onclick=\"fetch('/stocks/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S})}).then(r=>r.json()).then(d=>alert('今すぐレポート送信: '+JSON.stringify(d)))\">📨 今すぐレポートを送る</button>"
         "<table><tr><th class='l'>銘柄</th><th class='l'>名称</th><th>4期間RSI</th>"
         f"<th class='l'>200日線</th><th class='l'>シグナル</th></tr>{body}</table>"
-        "<p class='muted'>データ源: Yahoo Finance（日足・無料）。RSI/トレンドは日足終値基準。</p>"
+        "<p class='muted'>データ源: CNBC（日足・無料）。RSI/トレンドは日足終値基準。</p>"
         "</body></html>"
     )
     return HTMLResponse(page.replace("__S__", secret))

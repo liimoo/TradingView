@@ -100,6 +100,22 @@ def test_digest_exit_zone_listed():
 
 # ---- ユニバース定義 ----
 
+def test_cnbc_symbol_conversion():
+    # 日本株(.T)はCNBC表記に、米国はそのまま
+    assert stocks.cnbc_symbol("7203.T") == "7203.T-JP"
+    assert stocks.cnbc_symbol("1321.T") == "1321.T-JP"
+    assert stocks.cnbc_symbol("SPY") == "SPY"
+    assert stocks.cnbc_symbol("AAPL") == "AAPL"
+
+
+def test_parse_cnbc():
+    data = {"barData": {"priceBars": [
+        {"close": "100.5"}, {"close": "101.0"}, {"close": ""}, {"close": None}, {"close": "abc"}, {"close": "102"},
+    ]}}
+    assert stocks._parse_cnbc(data) == [100.5, 101.0, 102.0]  # 空/None/不正はスキップ
+    assert stocks._parse_cnbc({}) == []
+
+
 def test_universe_wellformed():
     assert len(stocks.UNIVERSE) >= 20
     for t in stocks.UNIVERSE:

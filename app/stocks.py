@@ -4,7 +4,8 @@
 「200日SMAより上 かつ 4期間RSIが低い（買いゾーン）」の銘柄をDiscordへ日次レポートする。
 売買はしない（日本から株のAPI発注は困難なため）＝通知を見て、必要ならご自身の証券会社で手動。
 
-・日足データは Yahoo Finance の公開JSON（無料・APIキー不要）から取得。
+・日足データは CNBC の公開チャートJSON（無料・APIキー不要・米国株/ETFも日本株も同一API）から取得。
+  （当初Yahooを使ったがデータセンターIPが429で弾かれたためCNBCへ変更。）
 ・シグナルのパラメータ(SMA200/RSI4/買い30/利確55)は暗号資産のパワーゾーンと共有(config)。
 ・pz.evaluate_signal を再利用するので「暗号資産と同じ計算」で株を判定する。
 """
@@ -113,38 +114,46 @@ def build_digest(rows: list[dict], today: str) -> str:
     return "\n".join(L)
 
 
-# ---- データ取得（Yahoo Finance 公開JSON） ----
-# 米国株/ETFも日本株(.T)も同一APIで日足200本以上を取得できるためYahooを主軸にする。
-# データセンターIPだと稀に429を返すので、Cookieセッション＋query1/2フォールバック＋軽いリトライで堅牢化。
+# ---- データ取得（CNBC 公開チャートJSON） ----
+# 米国株/ETFも日本株(.T)も同一APIで日足約500本を取得できる。APIキー不要・データセンターIPでも可。
+# レンジ "1Y" が実際には約2年分の日足を返す（SMA200に十分）。
 
-_WARMUP_URL = "https://finance.yahoo.com/"
+_CNBC_URL = "https://ts-api.cnbc.com/harmony/app/charts/1Y.json"
 
 
-def _parse_chart(data: dict) -> list[float]:
-    result = (data.get("chart") or {}).get("result") or []
-    if not result:
-        raise ValueError("no data")
-    quote = (result[0].get("indicators") or {}).get("quote") or [{}]
-    return [c for c in (quote[0].get("close") or []) if c is not None]
+def cnbc_symbol(ticker: str) -> str:
+    """ユニバースのティッカーをCNBC表記へ。日本株(.T)は "XXXX.T-JP"、米国はそのまま。"""
+    return ticker + "-JP" if ticker.endswith(".T") else ticker
+
+
+def _parse_cnbc(data: dict) -> list[float]:
+    bars = (data.get("barData") or {}).get("priceBars") or []
+    out = []
+    for b in bars:  # 古い順→新しい順。close は文字列なのでfloat化
+        c = b.get("close")
+        if c in (None, ""):
+            continue
+        try:
+            out.append(float(c))
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 async def _fetch_closes(client: httpx.AsyncClient, ticker: str) -> list[float]:
-    """日足の終値リストを返す（直近2年≈500本）。全経路失敗なら例外。"""
-    params = {"range": "2y", "interval": "1d"}
+    """日足の終値リストを返す（約2年・500本前後）。失敗なら例外（軽く1回リトライ）。"""
     last_exc: Exception = RuntimeError("unknown")
-    for host in ("query1", "query2"):  # 片方が詰まっても他方で拾う
-        url = f"https://{host}.finance.yahoo.com/v8/finance/chart/{ticker}"
+    for attempt in range(2):
         try:
-            r = await client.get(url, params=params)
-            if r.status_code == 429:  # レート制限は一拍おいて次経路へ
-                last_exc = RuntimeError("429 too many requests")
-                await asyncio.sleep(1.5)
-                continue
+            r = await client.get(_CNBC_URL, params={"symbol": cnbc_symbol(ticker)})
             r.raise_for_status()
-            return _parse_chart(r.json())
+            closes = _parse_cnbc(r.json())
+            if not closes:
+                raise ValueError("no data")
+            return closes
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(0.5)
     raise last_exc
 
 
@@ -169,14 +178,10 @@ async def _evaluate_one(client: httpx.AsyncClient, entry: tuple[str, str, str]) 
 async def evaluate_all() -> list[dict]:
     """全ユニバースを評価して行リストを返す（発注しない）。"""
     rows = []
-    async with httpx.AsyncClient(timeout=15, headers=_HEADERS, follow_redirects=True) as client:
-        try:  # Cookie取得のウォームアップ（429対策）。失敗しても続行
-            await client.get(_WARMUP_URL)
-        except Exception:  # noqa: BLE001
-            pass
+    async with httpx.AsyncClient(timeout=20, headers=_HEADERS, follow_redirects=True) as client:
         for entry in UNIVERSE:
             rows.append(await _evaluate_one(client, entry))
-            await asyncio.sleep(0.4)  # Yahooへのレート配慮
+            await asyncio.sleep(0.2)  # レート配慮
     return rows
 
 

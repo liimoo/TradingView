@@ -104,7 +104,7 @@ class Settings:
     rsi_overbought: float = field(default_factory=lambda: float(_get("RSI_OVERBOUGHT", "70")))
 
     # ===== 株モニター（米ETF/米株/日本株を日次で通知。売買はしない＝手動判断用） =====
-    # true=毎日 stocks_eval_hours に Yahoo Finance の日足でパワーゾーンを判定しDiscord通知。
+    # true=毎日 stocks_eval_hours に CNBCの日足でパワーゾーンを判定しDiscord通知。
     stocks_enabled: bool = field(default_factory=lambda: _get("STOCKS_ENABLED", "false").lower() in ("1", "true", "yes"))
     # 通知時刻(JST hour)。カンマ区切りで複数可。既定7時（米国クローズ後・日本オープン前で確定終値が揃う）。
     stocks_eval_hours: list = field(default_factory=lambda: _parse_hours(_get("STOCKS_EVAL_HOURS", "7")))
