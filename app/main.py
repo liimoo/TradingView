@@ -393,6 +393,7 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
   <a href='/stocks?secret=__S__' target='_blank'>📈 株モニター</a> ／
   <a href='/screen?secret=__S__' target='_blank'>🔬 銘柄スクリーニング</a> ／
   <a href='/config?secret=__S__' target='_blank'>⚙️ パラメーター調整</a> ／
+  <a href='/backtest' target='_blank'>📊 戦略バックテスト</a> ／
   <a href='/guide' target='_blank'>📖 通知の見方</a> ／
   <a href='/health' target='_blank'>🩺 稼働状況</a>
 </div>
@@ -452,11 +453,22 @@ try:
 except Exception:  # noqa: BLE001
     _REVIEW_HTML = "<!doctype html><meta charset='utf-8'><p>仕様ページは準備中です。</p>"
 
+try:
+    _BACKTEST_HTML = (Path(__file__).resolve().parent / "backtest.html").read_text(encoding="utf-8")
+except Exception:  # noqa: BLE001
+    _BACKTEST_HTML = "<!doctype html><meta charset='utf-8'><p>バックテストのレポートは準備中です。</p>"
+
 
 @app.get("/spec")
 async def spec():
     """システム仕様のまとめ（レビュー用・合言葉不要の公開ページ）。秘密情報は含まない。"""
     return HTMLResponse(_REVIEW_HTML)
+
+
+@app.get("/backtest")
+async def backtest_page():
+    """日本株82銘柄・パワーゾーン/モメンタム/買い持ちの戦略バックテスト報告（合言葉不要の公開ページ）。秘密情報は含まない。"""
+    return HTMLResponse(_BACKTEST_HTML)
 
 
 @app.get("/guide")
