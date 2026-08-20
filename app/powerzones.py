@@ -147,7 +147,10 @@ async def _execute(jpy_symbol: str, action: str, pos) -> None:
         fp = res.get("filled_price") or px
         if action == "buy":
             risk_manager.open_position(jpy_symbol, filled or 0, fp or 0, side="long")
-            await notify(f"🟢 パワーゾーン買い {jpy_symbol} @ {fp}（RSI売られすぎ・200日線上）\n{res.get('summary')}")
+            if settings.strategy == "momentum":
+                await notify(f"🟢 モメンタム買い {jpy_symbol} @ {fp}（200日線上・上昇率上位）\n{res.get('summary')}")
+            else:
+                await notify(f"🟢 パワーゾーン買い {jpy_symbol} @ {fp}（RSI売られすぎ・200日線上）\n{res.get('summary')}")
         else:  # scale
             _apply_scale(jpy_symbol, pos, filled or 0, fp or 0)
             await notify(f"➕ 買い増し {jpy_symbol} @ {fp}（さらに売られRSI<{_n(settings.pz_scale)}）\n{res.get('summary')}")
@@ -164,7 +167,10 @@ async def _execute(jpy_symbol: str, action: str, pos) -> None:
         if pos and pos.entry_price:
             risk_manager.record_close((px - pos.entry_price) * (qty or 0))
         risk_manager.close_position(jpy_symbol)
-        await notify(f"💰 パワーゾーン利確 {jpy_symbol} @ {px}（RSI>{_n(settings.pz_exit)}）\n{res.get('summary')}")
+        if settings.strategy == "momentum":
+            await notify(f"💰 モメンタム売り {jpy_symbol} @ {px}（上位から外れ・入れ替え）\n{res.get('summary')}")
+        else:
+            await notify(f"💰 パワーゾーン利確 {jpy_symbol} @ {px}（RSI>{_n(settings.pz_exit)}）\n{res.get('summary')}")
         journal.record_trade({"mode": settings.trading_mode, "action": "sell", "symbol": jpy_symbol,
                               "price": px, "filled_base": res.get("filled_base"), "status": res.get("status"),
                               "order_id": (res.get("order") or {}).get("id"), "reason": "powerzones_exit"})
