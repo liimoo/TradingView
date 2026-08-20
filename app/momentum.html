@@ -1,0 +1,162 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>モメンタム移行のご報告</title></head><body><style>
+  :root{--bg:#f4f2ed;--surface:#fff;--surface-2:#faf9f6;--ink:#1d1c19;--muted:#6c685f;--faint:#9a968c;--line:#e6e2d9;--line-strong:#d6d1c5;--accent:#2455d6;--pos:#1c7a3f;--neg:#c23b2e;--warn:#b8791b;--s1:#2563eb;--s2:#d9772c;--s3:#0f9384;--s4:#9d4fbf;--s1-soft:rgba(37,99,235,.10);--s3-soft:rgba(15,147,132,.10);--grid:#eeece5;--shade:rgba(194,59,46,.07);--shadow:0 1px 2px rgba(30,28,22,.04),0 8px 24px rgba(30,28,22,.05);}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161510;--surface:#201f1a;--surface-2:#1a1915;--ink:#ececE4;--muted:#a6a299;--faint:#75716a;--line:#332f28;--line-strong:#403b32;--accent:#7aa2ff;--pos:#5cc47f;--neg:#e8776a;--warn:#e0a94a;--s1:#4a90e8;--s2:#c9721f;--s3:#1a9e8a;--s4:#b45fe0;--s1-soft:rgba(74,144,232,.14);--s3-soft:rgba(26,158,138,.14);--grid:#2a271f;--shade:rgba(232,119,106,.09);--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);}}
+  :root[data-theme="dark"]{--bg:#161510;--surface:#201f1a;--surface-2:#1a1915;--ink:#ececE4;--muted:#a6a299;--faint:#75716a;--line:#332f28;--line-strong:#403b32;--accent:#7aa2ff;--pos:#5cc47f;--neg:#e8776a;--warn:#e0a94a;--s1:#4a90e8;--s2:#c9721f;--s3:#1a9e8a;--s4:#b45fe0;--s1-soft:rgba(74,144,232,.14);--s3-soft:rgba(26,158,138,.14);--grid:#2a271f;--shade:rgba(232,119,106,.09);--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",YuGothic,"Noto Sans JP",-apple-system,sans-serif;line-height:1.75;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:820px;margin:0 auto;padding:44px 22px 72px}
+  .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700;margin:0 0 10px}
+  h1{font-size:clamp(26px,4.4vw,38px);line-height:1.2;margin:0 0 16px;font-weight:800;letter-spacing:.01em;text-wrap:balance}
+  .lede{font-size:clamp(15px,2.1vw,17px);color:var(--ink);margin:0 0 4px;max-width:64ch}
+  .lede b{color:var(--ink)}
+  section{margin-top:42px}
+  h2{font-size:20px;font-weight:800;margin:0 0 4px}
+  .sub{font-size:13.5px;color:var(--muted);margin:0 0 18px}
+  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media(max-width:640px){.tiles{grid-template-columns:1fr}}
+  .tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .tile .band{position:absolute;left:0;top:0;bottom:0;width:3px}
+  .tile .k{font-size:12px;color:var(--muted);margin:0 0 8px;font-weight:600;padding-left:6px}
+  .tile .v{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;margin:0;line-height:1;padding-left:6px}
+  .tile .n{font-size:12px;color:var(--faint);margin:7px 0 0;padding-left:6px}
+  .v.pos{color:var(--pos)}.v.neg{color:var(--neg)}
+  .tile.hero{background:linear-gradient(180deg,var(--s3-soft),transparent)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow);margin-top:14px}
+  .legend{display:flex;flex-wrap:wrap;gap:14px 18px;margin:2px 2px 14px}
+  .lg{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600}
+  .lg .sw{width:13px;height:13px;border-radius:4px}.lg small{color:var(--muted);font-weight:500}
+  .chart-hold{position:relative;width:100%}
+  svg{width:100%;height:auto;display:block;overflow:visible;touch-action:none}
+  .gl{stroke:var(--grid);stroke-width:1}.base{stroke:var(--line-strong);stroke-width:1;stroke-dasharray:3 4}
+  .shade{fill:var(--shade)}.shlab{fill:var(--neg);font-size:10px;font-weight:700;opacity:.75}
+  .axt{fill:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+  .ln{fill:none;stroke-width:2.2;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
+  .endlab{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+  .cross{stroke:var(--line-strong);stroke-width:1;opacity:0}.dot{opacity:0}
+  .tt{position:absolute;pointer-events:none;opacity:0;transform:translate(-50%,-8px);background:var(--surface);border:1px solid var(--line-strong);border-radius:10px;padding:9px 11px;box-shadow:var(--shadow);font-size:12.5px;white-space:nowrap;z-index:5;transition:opacity .08s}
+  .tt .d{font-weight:700;margin-bottom:5px;font-size:12px;color:var(--muted)}
+  .tt .row{display:flex;align-items:center;gap:8px;justify-content:space-between}
+  .tt .nm{display:flex;align-items:center;gap:6px}.tt .sw{width:9px;height:9px;border-radius:3px}
+  .tt .val{font-weight:700;font-variant-numeric:tabular-nums;margin-left:12px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:right;padding:10px 12px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  th:first-child,td:first-child{text-align:left}
+  thead th{font-size:12px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--line-strong)}
+  tbody tr:last-child td{border-bottom:none}
+  td.neg{color:var(--neg);font-weight:700}td.pos{color:var(--pos);font-weight:700}td.warn{color:var(--warn);font-weight:700}
+  td .nmwrap{display:flex;align-items:center;gap:8px}td .sw{width:10px;height:10px;border-radius:3px}
+  .best td{background:var(--s3-soft)}
+  .note{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:13.5px;color:var(--muted);margin-top:14px}
+  .note b{color:var(--ink)}.note.key{border-left:3px solid var(--accent)}.note.warn{border-left:3px solid var(--warn)}
+  a{color:var(--accent)}
+  .decide{display:grid;gap:12px}
+  .decide .item{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--s3);border-radius:0 12px 12px 0;padding:15px 18px;box-shadow:var(--shadow)}
+  .decide .item h3{margin:0 0 4px;font-size:15px;font-weight:800}.decide .item p{margin:0;font-size:14px;color:var(--muted)}
+  .decide .item.wait{border-left-color:var(--warn)}
+  footer{margin-top:46px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+</style>
+<div class="wrap">
+  <p class="eyebrow">長さんへ ・ 戦略見直しのご報告</p>
+  <h1>パワーゾーンから、モメンタムへ</h1>
+  <p class="lede">長さん、パワーゾーン（逆張り）を教えていただきありがとうございました。あれで「機械的に売買する」という土台ができました。その上で、同じ仕組みを使って<b>順張り（モメンタム）</b>も検証したところ、株でも暗号資産でも<b>モメンタムがはっきり上回りました</b>。ご報告と、ご意見を伺いたく、まとめました。</p>
+  <p class="lede" style="margin-top:12px;color:var(--muted);font-size:14px">検証方法：同じ銘柄・同じ期間・手数料込みで「買い持ち／パワーゾーン（逆張り）／モメンタム（順張り＝200日線上で上昇率上位を保有・下抜けで現金）」を比較。</p>
+
+  <section>
+    <h2>① 日本株82銘柄（週足・約10年）</h2>
+    <p class="sub">上げ相場では逆張りが利確で降りてしまい取り逃す一方、順張りは乗り続けました。</p>
+    <div class="tiles">
+      <div class="tile hero"><span class="band" style="background:var(--s3)"></span><p class="k">モメンタム（順張り）</p><p class="v pos">+666%</p><p class="n">最大下落 −36%</p></div>
+      <div class="tile"><span class="band" style="background:var(--s1)"></span><p class="k">買い持ち</p><p class="v pos">+370%</p><p class="n">最大下落 −28%</p></div>
+      <div class="tile"><span class="band" style="background:var(--s2)"></span><p class="k">パワーゾーン（逆張り）</p><p class="v neg">不利</p><p class="n">上げ相場で買い持ちに負け</p></div>
+    </div>
+    <p class="sub" style="margin-top:12px">詳しいグラフ・下げ相場での検証は <a href="/backtest" target="_blank">/backtest ページ</a> にまとめてあります。</p>
+  </section>
+
+  <section>
+    <h2>② 暗号資産19銘柄（日足・約8年＝2018〜2026）</h2>
+    <p class="sub">2018年・2021-22年の暴落（赤帯）を含む本物の検証。差が桁違いでした。<b>対数目盛</b>（％の動きが一定幅で見える）。</p>
+    <div class="tiles">
+      <div class="tile hero"><span class="band" style="background:var(--s3)"></span><p class="k">モメンタム（順張り上位5）</p><p class="v pos">+4375%</p><p class="n">年率60%　最大下落 −65%</p></div>
+      <div class="tile"><span class="band" style="background:var(--s1)"></span><p class="k">買い持ち（等分）</p><p class="v pos">+648%</p><p class="n">年率28%　最大下落 −85%</p></div>
+      <div class="tile"><span class="band" style="background:var(--s2)"></span><p class="k">パワーゾーン（逆張り）</p><p class="v pos">+180%</p><p class="n">年率13%　最大下落 −41%</p></div>
+    </div>
+    <div class="card">
+      <div class="legend" id="legend"></div>
+      <div class="chart-hold"><svg id="chart" viewBox="0 0 860 430" role="img" aria-label="暗号資産8年の資産推移"></svg><div class="tt" id="tt"></div></div>
+    </div>
+    <div class="card" style="padding:6px 20px 4px">
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>暗号資産の弱気相場</th><th>モメンタム</th><th>買い持ち</th></tr></thead>
+        <tbody>
+          <tr class="best"><td>2018年の冬</td><td class="pos">±0%（現金に退避）</td><td class="neg">−61%</td></tr>
+          <tr class="best"><td>2021-22年の冬</td><td class="neg">−33%</td><td class="neg">−75%</td></tr>
+          <tr><td>コロナ暴落 2020</td><td class="neg">−46%</td><td class="neg">−60%</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <p class="sub" style="margin-top:12px">暗号資産はトレンドが強く、<b>200日線を割ると現金へ逃げる</b>順張りの仕組みが、暴落で買い持ちより傷を浅くしました（2018年は現金退避でほぼ無傷）。</p>
+  </section>
+
+  <section>
+    <h2>正直な注意点（過信しないために）</h2>
+    <div class="note warn">
+      <b>① 暗号資産のバックテストには「生存者バイアス」があります。</b>今も生き残っている19銘柄で検証したので、途中で消えたコインの損失は入っていません。実際の成績はこれより低くなります。<br><br>
+      <b>② 最大下落が深い。</b>モメンタムでも暗号資産は−65%、株は−36%。「2/3失う」場面に耐える前提が要ります。<br><br>
+      <b>③ 検証期間は通算では上げ相場</b>で、超長期の低迷は含みません。<b>④ 毎月の入れ替え作業</b>と、取引コスト・税金（暗号資産は雑所得で最大55%）も現実には効きます。
+    </div>
+  </section>
+
+  <section>
+    <h2>決めたこと（ご報告）</h2>
+    <div class="decide">
+      <div class="item"><h3>株：パワーゾーンの朝通知を撤廃 → 月次モメンタムへ（実施済み）</h3><p>毎月「200日線上で上昇率が高い上位8銘柄＋先月からの入れ替え」を通知。見てSBIで手動。あくまで通知のみ・売買はこちらの判断です。</p></div>
+      <div class="item wait"><h3>暗号資産（本番の自動売買）：まず少額で検証してから</h3><p>数字は圧倒的ですが、本番でお金が動く自動売買です。生存者バイアスもあるので、<b>いきなり切り替えず</b>、少額・paperで挙動を確かめてからパワーゾーンと入れ替えるか判断します。</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="note key">
+      <b>長さんへ。</b>逆張りのパワーゾーンは「機械的に淡々とやる」型を教えてくれた大事な出発点でした。そこから順張りへ広げられたのも、あの土台があったからです。上の検証や注意点について、<b>見落としや「ここは危ういぞ」という点があれば、ぜひご指摘ください。</b>特に暗号資産の本番切り替えは慎重にやるつもりなので、ご経験からのご意見を伺えたら嬉しいです。
+    </div>
+  </section>
+
+  <footer>
+    データ源: 株=CNBC 週足／暗号資産=Binance 日足（USDT建て・2018〜）。手数料込み（暗号資産 片道0.12%）。<br>
+    ※過去データの機械的シミュレーションで、将来の成績を保証しません。投資判断は自己責任で。
+  </footer>
+</div>
+
+<script>
+const DATA={"crypto": {"dates": ["2018-07-20", "2018-08-01", "2018-09-01", "2018-10-01", "2018-11-01", "2018-12-01", "2019-01-01", "2019-02-01", "2019-03-01", "2019-04-01", "2019-05-01", "2019-06-01", "2019-07-01", "2019-08-01", "2019-09-01", "2019-10-01", "2019-11-01", "2019-12-01", "2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01", "2020-05-01", "2020-06-01", "2020-07-01", "2020-08-01", "2020-09-01", "2020-10-01", "2020-11-01", "2020-12-01", "2021-01-01", "2021-02-01", "2021-03-01", "2021-04-01", "2021-05-01", "2021-06-01", "2021-07-01", "2021-08-01", "2021-09-01", "2021-10-01", "2021-11-01", "2021-12-01", "2022-01-01", "2022-02-01", "2022-03-01", "2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01", "2022-08-01", "2022-09-01", "2022-10-01", "2022-11-01", "2022-12-01", "2023-01-01", "2023-02-01", "2023-03-01", "2023-04-01", "2023-05-01", "2023-06-01", "2023-07-01", "2023-08-01", "2023-09-01", "2023-10-01", "2023-11-01", "2023-12-01", "2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01", "2024-05-01", "2024-06-01", "2024-07-01", "2024-08-01", "2024-09-01", "2024-10-01", "2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01", "2025-06-01", "2025-07-01", "2025-08-01", "2025-09-01", "2025-10-01", "2025-11-01", "2025-12-01", "2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01", "2026-05-01", "2026-06-01", "2026-07-01", "2026-08-01", "2026-08-20"], "series": {"買い持ち(等分)": [100.0, 101.27, 85.06, 74.54, 68.33, 51.77, 63.76, 61.36, 69.76, 87.76, 94.08, 139.75, 137.89, 110.72, 83.53, 73.37, 90.66, 75.67, 69.56, 93.6, 89.41, 61.51, 87.46, 98.41, 96.1, 139.84, 176.37, 132.57, 143.44, 188.61, 206.4, 415.99, 649.57, 720.5, 1666.15, 1395.13, 977.28, 942.49, 1462.77, 1231.87, 1514.07, 1501.26, 1270.79, 965.48, 942.11, 1026.16, 818.61, 542.77, 423.8, 495.81, 451.74, 441.14, 644.65, 499.57, 385.64, 537.13, 495.92, 503.39, 495.16, 463.7, 432.22, 460.43, 381.12, 399.97, 448.37, 514.35, 631.53, 574.71, 843.94, 1091.68, 830.21, 953.93, 824.72, 816.54, 691.05, 746.58, 892.91, 1783.8, 1507.74, 1449.43, 1095.98, 1005.61, 1042.87, 1118.01, 1012.37, 1234.41, 1335.98, 1610.44, 1409.03, 1057.15, 1057.46, 900.69, 775.74, 785.12, 839.82, 850.82, 674.38, 685.42, 748.32], "モメンタム(順張り上位5)": [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 101.07, 103.2, 116.46, 125.07, 190.93, 205.53, 170.5, 139.98, 133.0, 132.92, 126.75, 127.85, 127.88, 114.5, 88.62, 99.26, 102.54, 101.77, 130.74, 174.15, 125.17, 132.84, 161.41, 172.92, 361.67, 701.44, 976.32, 2547.03, 1987.07, 1541.02, 1561.07, 1541.53, 1791.46, 2683.07, 4305.77, 3616.25, 2487.39, 2505.62, 2468.87, 2468.87, 2470.11, 2359.23, 2362.88, 2304.86, 2304.86, 2357.48, 2186.47, 1895.12, 2258.36, 2050.43, 2045.74, 2041.85, 2079.19, 2166.75, 2389.77, 1925.26, 2162.42, 2611.95, 3178.73, 4863.53, 4123.61, 5311.85, 8181.6, 5945.72, 6801.29, 5738.79, 5714.9, 5386.25, 5459.83, 5443.08, 9389.22, 8282.6, 8126.24, 6399.76, 5863.68, 5827.89, 5799.11, 6263.31, 6669.36, 6790.16, 7198.77, 5641.64, 5239.97, 5226.55, 4557.61, 4550.6, 4550.6, 4568.52, 4616.82, 4518.26, 4477.28, 4475.12]}}, "cvar": {"買い持ち(等分)": "--s1", "モメンタム(順張り上位5)": "--s3"}};const CVAR=DATA.cvar;
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+function col(nm){return css(CVAR[nm]);}
+const W=860,H=430,mL=48,mR=118,mT=18,mB=30;
+(function(){
+  const svg=document.getElementById("chart"),S=DATA.crypto.series,DATES=DATA.crypto.dates,N=DATES.length,NAMES=Object.keys(S);
+  const ymin=40,ymax=12000,grid=[100,1000,10000],shades=[["2018-07-20","2018-12-31","2018の冬"],["2020-02-01","2020-04-15","コロナ"],["2021-11-01","2022-11-30","2021-22の冬"]];
+  const x=i=>mL+i/(N-1)*(W-mL-mR);
+  const yf=v=>mT+(Math.log(ymax)-Math.log(v))/(Math.log(ymax)-Math.log(ymin))*(H-mT-mB);
+  const di=ds=>{for(let i=0;i<N;i++){if(DATES[i]>=ds)return i;}return N-1;};
+  let g="";
+  shades.forEach(sh=>{const a=x(di(sh[0])),b=x(di(sh[1]));g+=`<rect class="shade" x="${a.toFixed(1)}" y="${mT}" width="${(b-a).toFixed(1)}" height="${H-mT-mB}"/>`;g+=`<text class="shlab" x="${((a+b)/2).toFixed(1)}" y="${mT+12}" text-anchor="middle">${sh[2]}</text>`;});
+  grid.forEach(v=>{const yy=yf(v).toFixed(1);g+=`<line class="gl" x1="${mL}" x2="${W-mR}" y1="${yy}" y2="${yy}"/>`;g+=`<text class="axt" x="${mL-8}" y="${(yf(v)+3.5).toFixed(1)}" text-anchor="end">${v>=1000?(v/1000)+'k':v}</text>`;});
+  const by=yf(100).toFixed(1);g+=`<line class="base" x1="${mL}" x2="${W-mR}" y1="${by}" y2="${by}"/><text class="axt" x="${mL-8}" y="${(yf(100)+3.5).toFixed(1)}" text-anchor="end">100</text>`;
+  let ly="";DATES.forEach((d,i)=>{const yr=d.slice(0,4);if(yr!==ly){ly=yr;g+=`<text class="axt" x="${x(i).toFixed(1)}" y="${H-mB+18}" text-anchor="middle">${yr}</text>`;}});
+  NAMES.forEach(nm=>{const pts=S[nm].map((v,i)=>`${x(i).toFixed(1)},${yf(v).toFixed(1)}`).join(" ");g+=`<polyline class="ln" points="${pts}" stroke="${col(nm)}"/>`;});
+  let ends=NAMES.map(nm=>({nm,v:S[nm][N-1],yy:yf(S[nm][N-1])}));ends.sort((a,b)=>a.yy-b.yy);
+  for(let i=1;i<ends.length;i++){if(ends[i].yy-ends[i-1].yy<15)ends[i].yy=ends[i-1].yy+15;}
+  ends.forEach(e=>{g+=`<text class="endlab" x="${W-mR+8}" y="${(e.yy+4).toFixed(1)}" fill="${col(e.nm)}">+${(e.v-100).toFixed(0)}%</text>`;});
+  g+=`<line class="cross" y1="${mT}" y2="${H-mB}"/>`;NAMES.forEach(nm=>g+=`<circle class="dot" r="4.5" fill="${col(nm)}" stroke="${css('--surface')}" stroke-width="2"/>`);
+  g+=`<rect x="${mL}" y="${mT}" width="${W-mL-mR}" height="${H-mT-mB}" fill="transparent"/>`;svg.innerHTML=g;
+  document.getElementById("legend").innerHTML=NAMES.map(nm=>`<span class="lg"><span class="sw" style="background:${col(nm)}"></span>${nm} <small>(+${(S[nm][N-1]-100).toFixed(0)}%)</small></span>`).join("");
+  const cross=svg.querySelector(".cross"),dots=svg.querySelectorAll(".dot"),tt=document.getElementById("tt"),hold=svg.parentElement;
+  function move(ev){const r=svg.getBoundingClientRect();let i=Math.round(((ev.clientX-r.left)/r.width*W-mL)/(W-mL-mR)*(N-1));i=Math.max(0,Math.min(N-1,i));const xx=x(i);
+    cross.setAttribute("x1",xx);cross.setAttribute("x2",xx);cross.style.opacity=1;
+    NAMES.forEach((nm,si)=>{dots[si].setAttribute("cx",xx);dots[si].setAttribute("cy",yf(S[nm][i]));dots[si].style.opacity=1;});
+    const rows=NAMES.map(nm=>`<div class="row"><span class="nm"><span class="sw" style="background:${col(nm)}"></span>${nm.replace(/（.*）/,'')}</span><span class="val" style="color:var(--pos)">+${(S[nm][i]-100).toFixed(0)}%</span></div>`).join("");
+    tt.innerHTML=`<div class="d">${DATES[i]}</div>${rows}`;const hr=hold.getBoundingClientRect();
+    tt.style.left=Math.max(64,Math.min(hr.width-64,(xx/W)*hr.width))+"px";tt.style.top=(yf(Math.max(...NAMES.map(nm=>S[nm][i])))/H*hr.height)+"px";tt.style.opacity=1;}
+  function leave(){tt.style.opacity=0;cross.style.opacity=0;dots.forEach(d=>d.style.opacity=0);}
+  svg.addEventListener("pointermove",move);svg.addEventListener("pointerdown",move);svg.addEventListener("pointerleave",leave);
+})();
+</script></body></html>

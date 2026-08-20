@@ -1,14 +1,15 @@
-"""株・ETFのRSIパワーゾーン監視（通知のみ・売買しない）。
+"""日本の大型株・ETFの「モメンタム（順張り）」監視（通知のみ・売買しない）。
 
 暗号資産(bitbankで自動売買)とは別に、日本の大型株・ETF（すべてNISA成長投資枠対象）を
-毎日チェックし、「200日SMAより上 かつ 4期間RSIが低い（買いゾーン）」の銘柄をDiscordへ
-日次レポートする。売買はしない（日本から株のAPI発注は困難なため）＝通知を見て、必要なら
-ご自身の証券会社で手動。（税・為替の手間を避けるため対象は日本株に限定。米国は外した。）
+毎日評価し、月が替わったら「今月のモメンタム上位N銘柄（＝200日SMAより上かつ直近6ヶ月の
+上昇率が高い順）＋先月からの入れ替え(IN/OUT)」をDiscordへ通知する。売買はしない
+（日本から株のAPI発注は困難なため）＝通知を見て、必要ならご自身の証券会社で手動。
 
-・日足データは CNBC の公開チャートJSON（無料・APIキー不要・米国株/ETFも日本株も同一API）から取得。
-  （当初Yahooを使ったがデータセンターIPが429で弾かれたためCNBCへ変更。）
-・シグナルのパラメータ(SMA200/RSI4/買い30/利確55)は暗号資産のパワーゾーンと共有(config)。
-・pz.evaluate_signal を再利用するので「暗号資産と同じ計算」で株を判定する。
+・元は逆張り(パワーゾーン/RSI)だったが、10年バックテストで順張りモメンタムが大きく上回った
+  ため2026-08にモメンタムへ移行（通知のみ・売買なしは不変）。1ヶ月前の順位も同じ価格系列
+  から計算して IN/OUT を出すので、状態の永続化は不要。
+・日足データは CNBC の公開チャートJSON（無料・APIキー不要・データセンターIPでも可）から取得。
+・SMA200は暗号資産のパワーゾーンと共有(pz_sma_len)。上昇率の測定期間は stocks_mom_lookback。
 """
 from __future__ import annotations
 
@@ -19,7 +20,6 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from .config import settings
-from . import powerzones as pz
 from .notifier import notify
 
 logger = logging.getLogger("stocks")
@@ -132,55 +132,89 @@ _HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
 
 
 # ---- 純粋関数（ネットワーク不要・テスト対象） ----
+# モメンタム（順張り）方式：200日線より上 かつ 上昇率がプラスの銘柄を、上昇率順に上位N保有する想定。
+# 月1で入れ替える「保有ランキング」を通知する（売買はしない＝手動判断用）。
 
-def signal_of(close, sma200, rsi4) -> dict:
-    """終値/SMA/RSI から売買ゾーンを判定する（発注はしない・表示/通知用）。"""
-    if close is None or sma200 is None or rsi4 is None:
-        return {"above_sma": None, "buy": False, "near": False, "exit_zone": False}
-    above = close > sma200
-    buy = above and rsi4 < settings.pz_entry                         # 買いゾーン
-    near = above and (not buy) and rsi4 < settings.stocks_near_rsi   # もうすぐ買い
-    exit_zone = rsi4 > settings.pz_exit                             # 利確ゾーン（保有中なら）
-    return {"above_sma": above, "buy": buy, "near": near, "exit_zone": exit_zone}
+def _sma_at(closes: list, i: int, n: int):
+    """closes[i] を末尾とする n本の単純移動平均。足りなければ None。"""
+    if i < 0 or i < n - 1 or i >= len(closes):
+        return None
+    return sum(closes[i - n + 1:i + 1]) / n
 
 
-def _fmt_rsi(v) -> str:
-    return "-" if v is None else f"{v:.0f}"
+def momentum_at(closes: list, i: int, look: int):
+    """closes[i] の look本前比の上昇率（0.12 = +12%）。足りなければ None。"""
+    if i < 0 or i < look or i >= len(closes):
+        return None
+    base = closes[i - look]
+    if not base:
+        return None
+    return closes[i] / base - 1
+
+
+def snapshot(closes: list, i: int, sma_len: int, look: int):
+    """時点 i の {close, sma, mom, above, eligible} を返す。
+    eligible = 200日線より上 かつ 上昇率がプラス（＝上昇トレンドで持てる）。"""
+    sm = _sma_at(closes, i, sma_len)
+    mom = momentum_at(closes, i, look)
+    if sm is None or mom is None:
+        return None
+    above = closes[i] > sm
+    return {"close": closes[i], "sma": sm, "mom": mom,
+            "above": above, "eligible": above and mom > 0}
+
+
+def top_momentum(rows: list, n: int, prev: bool = False) -> list:
+    """モメンタム上位n銘柄（eligibleのみ・上昇率降順）。prev=Trueなら1ヶ月前時点の順位。"""
+    mk = "prev_mom" if prev else "mom"
+    ek = "prev_eligible" if prev else "eligible"
+    elig = [r for r in rows if r.get(ek) and r.get(mk) is not None]
+    elig.sort(key=lambda r: r[mk], reverse=True)
+    return elig[:n]
+
+
+def _pct(v) -> str:
+    return "-" if v is None else f"{'+' if v >= 0 else ''}{v * 100:.0f}%"
 
 
 def build_digest(rows: list[dict], today: str) -> str:
-    """評価済みの行から、Discordへ送る日次レポート文を組み立てる（純粋関数）。"""
+    """月次モメンタム・ランキングのDiscord通知文を組み立てる（純粋関数）。"""
     ok = [r for r in rows if not r.get("error")]
-    buys = [r for r in ok if r.get("buy")]
-    nears = [r for r in ok if r.get("near")]
-    exits = [r for r in ok if r.get("exit_zone")]
     errs = [r for r in rows if r.get("error")]
+    n = settings.stocks_mom_top
+    cur = top_momentum(ok, n)
+    prev = top_momentum(ok, n, prev=True)
+    cur_t = [r["ticker"] for r in cur]
+    prev_t = [r["ticker"] for r in prev]
+    ins = [r for r in cur if r["ticker"] not in prev_t]
+    outs = [r for r in prev if r["ticker"] not in cur_t]
+    months = max(1, settings.stocks_mom_lookback // 21)
 
-    def line(r: dict) -> str:
-        return f"　・{r['ticker']} {r['name']} RSI{_fmt_rsi(r.get('rsi4'))}"
-
-    L = [f"📈 株パワーゾーン日次レポート（{today}）"]
-    if buys:
-        L.append(f"🟢 買いゾーン {len(buys)}件（200日線↑ & RSI<{int(settings.pz_entry)}）")
-        L += [line(r) for r in sorted(buys, key=lambda r: r.get("rsi4") or 0)]
+    L = [f"📈 月次モメンタム・ランキング（{today}）",
+         f"🏅 今月の保有上位{n}（200日線↑ & 直近{months}ヶ月の上昇率順）"]
+    if cur:
+        for rank, r in enumerate(cur, 1):
+            L.append(f"　{rank}. {r['ticker']} {r['name']}　{_pct(r.get('mom'))}")
     else:
-        cand = [r for r in ok if r.get("above_sma") and r.get("rsi4") is not None]
-        if cand:
-            c = min(cand, key=lambda r: r["rsi4"])
-            L.append(f"🟢 買いシグナルなし（最も近い: {c['ticker']} {c['name']} RSI{_fmt_rsi(c['rsi4'])}）")
-        else:
-            L.append("🟢 買いシグナルなし")
-    if nears:
-        L.append(f"🟡 もうすぐ買い（RSI<{int(settings.stocks_near_rsi)}）")
-        L += [line(r) for r in sorted(nears, key=lambda r: r.get("rsi4") or 0)]
-    if exits:
-        L.append(f"💰 利確ゾーン（保有中ならRSI>{int(settings.pz_exit)}）")
-        L += [line(r) for r in exits]
+        L.append("　該当なし（上昇トレンドの銘柄が無い＝現金推奨）")
+
+    def names(rs):
+        return "、".join(f"{r['ticker']} {r['name']}" for r in rs)
+
+    if ins or outs:
+        L.append("🔁 先月からの入れ替え")
+        if ins:
+            L.append(f"　IN ➕ {names(ins)}")
+        if outs:
+            L.append(f"　OUT ➖ {names(outs)}")
+    else:
+        L.append("🔁 先月から入れ替えなし（同じ顔ぶれ）")
+
     tail = f"監視 {len(ok)}銘柄"
     if errs:
         tail += f" / 取得失敗 {len(errs)}"
     L.append("―――")
-    L.append(tail + "　※通知のみ・売買はご自身の証券会社で手動判断を")
+    L.append(tail + "　※月1入替の目安・通知のみ／売買はご自身の証券会社で手動判断を")
     return "\n".join(L)
 
 
@@ -229,7 +263,9 @@ async def _fetch_closes(client: httpx.AsyncClient, ticker: str) -> list[float]:
 
 async def _evaluate_one(client: httpx.AsyncClient, entry: tuple[str, str, str]) -> dict:
     ticker, name, group = entry
-    need = settings.pz_sma_len + settings.pz_rsi_len + 2
+    look = settings.stocks_mom_lookback
+    # 現在＋1ヶ月前(21営業日)の両方でSMA200を出せる本数が必要。
+    need = settings.pz_sma_len + 21 + 2
     base = {"ticker": ticker, "name": name, "group": group}
     try:
         closes = await _fetch_closes(client, ticker)
@@ -238,11 +274,14 @@ async def _evaluate_one(client: httpx.AsyncClient, entry: tuple[str, str, str]) 
         return {**base, "error": str(exc)[:80]}
     if len(closes) < need:
         return {**base, "error": f"データ不足({len(closes)}本)"}
-    sig = pz.evaluate_signal(closes)  # 暗号資産と同じSMA200/RSI4計算を再利用
-    zone = signal_of(sig["close"], sig["sma200"], sig["rsi4"])
+    cur = snapshot(closes, len(closes) - 1, settings.pz_sma_len, look)
+    prev = snapshot(closes, len(closes) - 1 - 21, settings.pz_sma_len, look)
     return {**base,
-            "rsi4": round(sig["rsi4"], 1) if sig["rsi4"] is not None else None,
-            **zone}
+            "mom": cur["mom"] if cur else None,
+            "above_sma": cur["above"] if cur else None,
+            "eligible": bool(cur and cur["eligible"]),
+            "prev_mom": prev["mom"] if prev else None,
+            "prev_eligible": bool(prev and prev["eligible"])}
 
 
 async def evaluate_all() -> list[dict]:
@@ -256,22 +295,24 @@ async def evaluate_all() -> list[dict]:
 
 
 async def run_and_notify() -> dict:
-    """評価してDiscordへ日次レポートを送る。集計サマリーを返す。"""
+    """評価してDiscordへ月次モメンタム・ランキングを送る。集計サマリーを返す。"""
     rows = await evaluate_all()
     today = datetime.now(JST).strftime("%Y-%m-%d")
     await notify(build_digest(rows, today))
+    ok = [r for r in rows if not r.get("error")]
     return {
-        "buy": sum(1 for r in rows if r.get("buy")),
-        "near": sum(1 for r in rows if r.get("near")),
-        "exit_zone": sum(1 for r in rows if r.get("exit_zone")),
+        "held": len(top_momentum(ok, settings.stocks_mom_top)),
+        "eligible": sum(1 for r in ok if r.get("eligible")),
         "errors": sum(1 for r in rows if r.get("error")),
         "total": len(rows),
     }
 
 
 async def signal_status() -> list[dict]:
-    """表示用に全銘柄の現在シグナルを返す（/stocks ページ用）。"""
-    return await evaluate_all()
+    """表示用に全銘柄の現在モメンタムを返す（/stocks ページ用）。上昇率降順。"""
+    rows = await evaluate_all()
+    return sorted(rows, key=lambda r: (r.get("mom") is not None, r.get("mom") or -9),
+                  reverse=True)
 
 
 def _seconds_until_eval() -> float:
@@ -286,18 +327,27 @@ def _seconds_until_eval() -> float:
     return min(secs)
 
 
+_last_notify_month: tuple | None = None
+
+
 async def stocks_loop() -> None:
-    """毎日 stocks_eval_hours(JST) に株モニターを回してDiscordへ通知するループ。"""
+    """毎日 stocks_eval_hours(JST) に評価し、月が替わったら月次モメンタム通知を送るループ。"""
+    global _last_notify_month
     if not settings.stocks_enabled:
-        logger.info("株モニターは無効（STOCKS_ENABLED=false）")
+        logger.info("株モメンタムは無効（STOCKS_ENABLED=false）")
         return
     hours = ", ".join(f"{h}:00" for h in settings.stocks_eval_hours)
-    logger.info("株モニター 起動（%d銘柄・通知 JST %s）", len(UNIVERSE), hours)
+    logger.info("株モメンタム 起動（%d銘柄・月次通知 JST %s頃・上位%d）",
+                len(UNIVERSE), hours, settings.stocks_mom_top)
     while True:
         await asyncio.sleep(_seconds_until_eval())
-        try:
-            summary = await run_and_notify()
-            logger.info("株モニター通知: %s", summary)
-        except Exception:  # noqa: BLE001
-            logger.exception("株モニターでエラー")
-        await asyncio.sleep(60)  # 同一時刻での二重通知を避ける
+        now = datetime.now(JST)
+        ym = (now.year, now.month)
+        if ym != _last_notify_month:  # 月が替わった最初の評価でだけ通知（月1回）
+            try:
+                summary = await run_and_notify()
+                _last_notify_month = ym
+                logger.info("株モメンタム 月次通知: %s", summary)
+            except Exception:  # noqa: BLE001
+                logger.exception("株モメンタムでエラー")
+        await asyncio.sleep(60)  # 同一時刻での二重評価を避ける

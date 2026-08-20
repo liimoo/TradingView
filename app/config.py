@@ -103,12 +103,16 @@ class Settings:
     rsi_oversold: float = field(default_factory=lambda: float(_get("RSI_OVERSOLD", "30")))
     rsi_overbought: float = field(default_factory=lambda: float(_get("RSI_OVERBOUGHT", "70")))
 
-    # ===== 株モニター（米ETF/米株/日本株を日次で通知。売買はしない＝手動判断用） =====
-    # true=毎日 stocks_eval_hours に CNBCの日足でパワーゾーンを判定しDiscord通知。
+    # ===== 株モニター（日本大型株を月次でモメンタム判定し通知。売買はしない＝手動判断用） =====
+    # true=毎日 stocks_eval_hours に評価し、月が替わったら「今月のモメンタム上位」をDiscord通知。
     stocks_enabled: bool = field(default_factory=lambda: _get("STOCKS_ENABLED", "false").lower() in ("1", "true", "yes"))
-    # 通知時刻(JST hour)。カンマ区切りで複数可。既定7時（米国クローズ後・日本オープン前で確定終値が揃う）。
+    # 評価時刻(JST hour)。カンマ区切りで複数可。既定7時（米国クローズ後・日本オープン前で確定終値が揃う）。
     stocks_eval_hours: list = field(default_factory=lambda: _parse_hours(_get("STOCKS_EVAL_HOURS", "7")))
-    # 「もうすぐ買い」ウォッチリストのRSI閾値（買い30の一歩手前）。
+    # モメンタム保有上位N銘柄（月次で入れ替える想定）。
+    stocks_mom_top: int = field(default_factory=lambda: int(_get("STOCKS_MOM_TOP", "8")))
+    # モメンタム上昇率の計測期間（営業日）。既定126≒6ヶ月。
+    stocks_mom_lookback: int = field(default_factory=lambda: int(_get("STOCKS_MOM_LOOKBACK", "126")))
+    # （旧）パワーゾーンの「もうすぐ買い」閾値。モメンタム移行後は未使用だが後方互換で残置。
     stocks_near_rsi: float = field(default_factory=lambda: float(_get("STOCKS_NEAR_RSI", "35")))
 
     # ===== 戦略モード =====

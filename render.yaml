@@ -65,11 +65,13 @@ services:
       - key: TAKE_PROFIT_PCT
         value: "0" # パワーゾーンの利確はRSI>55で行うため、±%の利確は使わない
       - key: STOCKS_ENABLED
-        value: "true" # 株モニター(米ETF/米株/日本株)を日次でDiscord通知。売買はしない＝手動判断用
+        value: "true" # 株モメンタム(日本大型株82)を月次でDiscord通知。売買はしない＝手動判断用
       - key: STOCKS_EVAL_HOURS
-        value: "7" # 通知時刻(JST)。7時＝米国クローズ後・日本オープン前で確定終値が揃う
-      - key: STOCKS_NEAR_RSI
-        value: "35" # 「もうすぐ買い」ウォッチリストのRSI閾値（買い30の一歩手前）
+        value: "7" # 評価時刻(JST)。7時＝米国クローズ後・日本オープン前で確定終値が揃う
+      - key: STOCKS_MOM_TOP
+        value: "8" # モメンタム保有上位N銘柄（月次で入れ替える想定）
+      - key: STOCKS_MOM_LOOKBACK
+        value: "126" # 上昇率の測定期間(営業日)。126≒6ヶ月
       - key: MONITOR_INTERVAL_SEC
         value: "60"
       - key: MAX_DAILY_LOSS_JPY
