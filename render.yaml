@@ -45,7 +45,7 @@ services:
       - key: NOTIFY_ENABLED
         value: "true"
       - key: STRATEGY
-        value: "powerzones" # 新戦略: サーバ計算・日足・ロングのみ(Larry ConnorsのRSIパワーゾーン)
+        value: "momentum" # 順張りモメンタム(200日線上・上昇率上位を月次リバランス)。逆張りより10年検証で優位だったため移行。powerzonesへ戻すことも可
       - key: PZ_MAX_POSITIONS
         value: "5" # 同時保有の上限（サイズ管理でDDを抑える。検証で最良）
       - key: PZ_DYNAMIC_UNIVERSE

@@ -71,6 +71,10 @@ async def lifespan(app: FastAPI):
         from . import powerzones, screener
         tasks.append(asyncio.create_task(powerzones.powerzones_loop()))
         tasks.append(asyncio.create_task(screener.screener_loop()))  # 銘柄スクリーニングを裏で集計
+    elif settings.strategy == "momentum":
+        # 順張りモメンタム（月次リバランス）。執行/リスク管理はPowerZonesの実績あるコードを流用。
+        from . import momentum_live
+        tasks.append(asyncio.create_task(momentum_live.momentum_loop()))
     else:
         # 旧戦略: ±5%損切り/利確の監視ループを開始
         tasks.append(asyncio.create_task(monitor.exit_monitor_loop()))
@@ -427,6 +431,23 @@ async def crypto_paper_run(request: Request):
     return JSONResponse({"ran": True, **summary})
 
 
+@app.post("/momentum/rebalance")
+async def momentum_rebalance(request: Request):
+    """モメンタム戦略のリバランスを今すぐ実行（本番＝実発注あり／要合言葉）。
+
+    STRATEGY=momentum のときだけ有効。次の評価時刻を待たず、その場で上位銘柄へ入れ替える。
+    """
+    body = await request.json()
+    if not verify_secret(body.get("secret", ""), settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    if settings.strategy != "momentum":
+        return JSONResponse(status_code=409,
+                            content={"error": f"strategy is '{settings.strategy}', not 'momentum'"})
+    from . import momentum_live
+    summary = await momentum_live.rebalance()
+    return JSONResponse({"ran": True, **summary})
+
+
 @app.get("/tax")
 async def tax_endpoint(secret: str = "", format: str = "html", year: int = 0):
     """年間損益サマリー（確定申告の把握・目安用）。?format=json / ?format=csv も可。?year=2026 で年指定。"""
@@ -460,6 +481,7 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
 <h1>🎛️ 操作パネル</h1>
 <div class='card' id='status'>読み込み中...</div>
 <div class='card'>
+  <button onclick="rebalance()">🔀 モメンタム リバランスを今すぐ実行（本番・実発注）</button>
   <button class='red' onclick="flatten()">🧹 全建玉を今すぐクローズ（flatten）</button>
   <button class='orange' onclick="kill(true)">🛑 緊急停止（新規発注を止める）</button>
   <button class='green' onclick="kill(false)">▶ 発注を再開</button>
@@ -499,6 +521,12 @@ async function kill(on){
   log((on?"緊急停止":"再開")+"実行中...");
   try{const r=await fetch('/killswitch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S,on:on})});
     const d=await r.json();log("結果: "+JSON.stringify(d));refresh();}catch(e){log("失敗: "+e);}
+}
+async function rebalance(){
+  if(!confirm("モメンタムのリバランスを今すぐ実行します（本番・実際に売買が入ります）。よろしいですか？"))return;
+  log("リバランス実行中...");
+  try{const r=await fetch('/momentum/rebalance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S})});
+    const d=await r.json();log("リバランス結果: "+JSON.stringify(d));refresh();}catch(e){log("失敗: "+e);}
 }
 refresh();setInterval(refresh,15000);
 </script></body></html>"""
