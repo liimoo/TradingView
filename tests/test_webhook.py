@@ -216,7 +216,10 @@ def test_report_requires_secret():
 def test_report_html_ok():
     client.post("/webhook", content=_payload(bar_time="rep1"))  # 記録を1件作る
     r = client.get("/report", params={"secret": "test-secret"})
-    assert r.status_code == 200 and "取引レポート" in r.text
+    assert r.status_code == 200 and "損益レポート" in r.text  # パワーゾーン損益レポート
+    # モメンタム損益ページも開ける
+    rm = client.get("/report_momentum", params={"secret": "test-secret"})
+    assert rm.status_code == 200 and "モメンタム損益レポート" in rm.text
 
 
 def test_report_json_ok():

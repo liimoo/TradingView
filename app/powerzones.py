@@ -171,9 +171,10 @@ async def _execute(jpy_symbol: str, action: str, pos) -> None:
             await notify(f"💰 モメンタム売り {jpy_symbol} @ {px}（上位から外れ・入れ替え）\n{res.get('summary')}")
         else:
             await notify(f"💰 パワーゾーン利確 {jpy_symbol} @ {px}（RSI>{_n(settings.pz_exit)}）\n{res.get('summary')}")
+        exit_reason = "momentum_exit" if settings.strategy == "momentum" else "powerzones_exit"
         journal.record_trade({"mode": settings.trading_mode, "action": "sell", "symbol": jpy_symbol,
                               "price": px, "filled_base": res.get("filled_base"), "status": res.get("status"),
-                              "order_id": (res.get("order") or {}).get("id"), "reason": "powerzones_exit"})
+                              "order_id": (res.get("order") or {}).get("id"), "reason": exit_reason})
 
 
 def _apply_scale(jpy_symbol: str, pos, add_base: float, add_price: float) -> None:

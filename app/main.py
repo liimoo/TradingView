@@ -127,10 +127,21 @@ async def health() -> dict:
 
 @app.get("/report")
 async def report(secret: str = "", format: str = "html"):
-    """取引記録＆集計。ブラウザで /report?secret=... を開く（URLは他人に共有しない）。"""
+    """パワーゾーン損益レポート（逆張り由来の往復トレード）。/report?secret=... で開く。"""
     if not verify_secret(secret, settings.webhook_secret):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
-    data = await asyncio.to_thread(build_report)
+    data = await asyncio.to_thread(build_report, "powerzones")
+    if format == "json":
+        return JSONResponse(data)
+    return HTMLResponse(render_html(data))
+
+
+@app.get("/report_momentum")
+async def report_momentum(secret: str = "", format: str = "html"):
+    """モメンタム損益レポート（モメンタム移行以降の往復トレード）。/report_momentum?secret=... で開く。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    data = await asyncio.to_thread(build_report, "momentum")
     if format == "json":
         return JSONResponse(data)
     return HTMLResponse(render_html(data))
@@ -489,7 +500,8 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
 </div>
 <div class='card'>
   <div class='muted'>詳しく見る・設定</div>
-  <a href='/report?secret=__S__' target='_blank'>📊 損益レポート</a> ／
+  <a href='/report_momentum?secret=__S__' target='_blank'>📊 モメンタム損益</a> ／
+  <a href='/report?secret=__S__' target='_blank'>📊 パワーゾーン損益(旧)</a> ／
   <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a> ／
   <a href='/tax?secret=__S__' target='_blank'>🧾 年間損益(税金の目安)</a><br>
   <a href='/stocks?secret=__S__' target='_blank'>📈 株モメンタム</a> ／

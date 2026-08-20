@@ -212,10 +212,21 @@ def _rt_summary(rts: list) -> dict:
     }
 
 
-def build_report() -> dict:
-    """取引所の約定履歴から銘柄ごとの集計を作る。"""
+def _rt_is_mom(reason) -> bool:
+    """往復トレードの決済理由がモメンタム由来か（momentum/momentum_trim/momentum_exit）。"""
+    return bool(reason) and str(reason).startswith("momentum")
+
+
+def build_report(strategy: str | None = None) -> dict:
+    """取引所の約定履歴から銘柄ごとの集計を作る。
+
+    strategy を指定すると、往復トレード台帳をその戦略の売買だけに絞る
+    （"momentum"=モメンタム由来のみ / "powerzones"等=モメンタム以外のみ）。
+    残高・銘柄別の売買合計は取引所全体（全戦略合算）のまま。
+    """
     out: dict = {
         "mode": settings.trading_mode,
+        "strategy_view": strategy,
         "generated": datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S JST"),
         "balance": {},
         "symbols": {},
@@ -301,6 +312,10 @@ def build_report() -> dict:
             "rows": rows[-30:],
         }
         rts, open_lots = _build_roundtrips(trades, reason_map, rsi_map)
+        if strategy == "momentum":
+            rts = [r for r in rts if _rt_is_mom(r.get("reason"))]
+        elif strategy in ("powerzones", "webhook"):
+            rts = [r for r in rts if not _rt_is_mom(r.get("reason"))]
         out["symbols"][sym]["roundtrips"] = rts[-50:]
         out["symbols"][sym]["rt_summary"] = _rt_summary(rts)
         out["symbols"][sym]["open_lots"] = len(open_lots)
@@ -325,10 +340,17 @@ def _fmt_num(v) -> str:
 
 def render_html(data: dict) -> str:
     esc = html.escape
+    sv = data.get("strategy_view")
+    if sv == "momentum":
+        rep_title, scope = "モメンタム損益レポート", "モメンタム移行(2026-08-20)以降の往復トレードのみを表示。"
+    elif sv in ("powerzones", "webhook"):
+        rep_title, scope = "パワーゾーン損益レポート", "パワーゾーン(逆張り)由来の往復トレードのみを表示。モメンタムの分は /report_momentum へ。"
+    else:
+        rep_title, scope = "取引レポート", ""
     parts = [
         "<!doctype html><html lang='ja'><head><meta charset='utf-8'>",
         "<meta name='viewport' content='width=device-width, initial-scale=1'>",
-        "<title>取引レポート</title><style>",
+        f"<title>{esc(rep_title)}</title><style>",
         "body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;margin:1.2rem;color:#111;background:#fafafa}",
         "h1{font-size:1.3rem}h2{font-size:1.05rem;margin-top:1.6rem}",
         "table{border-collapse:collapse;width:100%;margin:.4rem 0;font-size:.85rem;background:#fff}",
@@ -336,9 +358,11 @@ def render_html(data: dict) -> str:
         "td.l,th.l{text-align:left}.pos{color:#0a0}.neg{color:#c00}.muted{color:#888}",
         ".card{background:#fff;border:1px solid #e2e2e2;border-radius:8px;padding:.8rem 1rem;margin:.6rem 0}",
         "</style></head><body>",
-        f"<h1>取引レポート <span class='muted'>({esc(data.get('mode',''))})</span></h1>",
+        f"<h1>{esc(rep_title)} <span class='muted'>({esc(data.get('mode',''))})</span></h1>",
         f"<p class='muted'>生成: {esc(data.get('generated',''))}</p>",
     ]
+    if scope:
+        parts.append(f"<div class='card muted'>{esc(scope)}　※上部の残高・銘柄別の売買合計は取引所全体（全戦略合算）です。</div>")
     if data.get("note"):
         parts.append(f"<div class='card'>{esc(data['note'])}</div>")
 
@@ -428,8 +452,9 @@ def render_html(data: dict) -> str:
             parts.append(f"　<span class='muted'>(未決済 {s['open_lots']}件)</span>")
         parts.append("</div>")
         if rts:
-            is_pz = settings.strategy == "powerzones"
-            is_mom = settings.strategy == "momentum"
+            _s = sv or settings.strategy
+            is_pz = _s == "powerzones"
+            is_mom = _s == "momentum"
             if is_pz:
                 pz_e, pz_x = _fmt_num(settings.pz_entry), _fmt_num(settings.pz_exit)
             elif not is_mom:
