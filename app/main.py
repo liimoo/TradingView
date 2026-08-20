@@ -720,9 +720,12 @@ async def webhook(request: Request) -> JSONResponse:
         await notify(f"⚠️ 不正なWebhook（secret不一致）: {signal.action} {signal.symbol}")
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
-    # 1.5) パワーゾーン戦略が有効な間は、旧TradingViewアラートは無視（二重売買を防ぐ）
-    if settings.strategy == "powerzones":
-        return JSONResponse(status_code=200, content={"status": "ignored_powerzones_mode"})
+    # 1.5) サーバ内蔵戦略(powerzones/momentum等)が有効な間は、旧TradingViewアラートは無視する。
+    #      これを怠ると、ロング専用のモメンタム中でも旧15分RSIの信用ショートが建ってしまう。
+    #      Webhookで売買するのは STRATEGY=webhook の時だけ。
+    if settings.strategy != "webhook":
+        logger.info("旧Webhookを無視（STRATEGY=%s）: %s %s", settings.strategy, signal.action, signal.symbol)
+        return JSONResponse(status_code=200, content={"status": f"ignored_{settings.strategy}_mode"})
 
     # 2) 二重POST排除（同じ足の同じサイン）
     key = f"{signal.symbol}|{signal.action}|{signal.bar_time or ''}"
