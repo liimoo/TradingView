@@ -482,6 +482,7 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
 <div class='card' id='status'>読み込み中...</div>
 <div class='card'>
   <button onclick="rebalance()">🔀 モメンタム リバランスを今すぐ実行（本番・実発注）</button>
+  <button class='orange' onclick="closeShorts()">🟩 信用ショートだけ解消（ロングは残す）</button>
   <button class='red' onclick="flatten()">🧹 全建玉を今すぐクローズ（flatten）</button>
   <button class='orange' onclick="kill(true)">🛑 緊急停止（新規発注を止める）</button>
   <button class='green' onclick="kill(false)">▶ 発注を再開</button>
@@ -525,6 +526,12 @@ async function rebalance(){
   log("リバランス実行中...");
   try{const r=await fetch('/momentum/rebalance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S})});
     const d=await r.json();log("リバランス結果: "+JSON.stringify(d));refresh();}catch(e){log("失敗: "+e);}
+}
+async function closeShorts(){
+  if(!confirm("信用ショートの建玉だけを買い戻して解消します（現物ロングは残します）。よろしいですか？"))return;
+  log("信用ショート解消中...");
+  try{const r=await fetch('/close_shorts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S})});
+    const d=await r.json();log("ショート解消結果: "+JSON.stringify(d));refresh();}catch(e){log("失敗: "+e);}
 }
 refresh();setInterval(refresh,15000);
 </script></body></html>"""
@@ -998,6 +1005,36 @@ async def flatten(body: SecretBody):
             results.append({"symbol": sym, "error": str(exc)})
     await notify(f"🧹 全建玉クローズ: {len(results)}件")
     return JSONResponse(content={"closed": results})
+
+
+@app.post("/close_shorts")
+async def close_shorts(body: SecretBody):
+    """信用ショートの建玉だけを買い戻して解消する（ロング＝現物はそのまま残す）。
+
+    モメンタムはロング専用なので、ショートは旧Webhookの誤発注のみ。ETH等のロングは触らない。
+    """
+    if not verify_secret(body.secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    results = []
+    for sym, pos in list(risk_manager._positions.items()):
+        if pos.side != "short":
+            continue
+        px = pos.entry_price or 0.0
+        if broker.has_exchange:
+            try:
+                px = await asyncio.to_thread(broker.ticker, sym)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            res = await asyncio.to_thread(broker.margin_order, sym, "buy", pos.base_qty, "short", px, True)
+            if pos.entry_price:
+                risk_manager.record_close(-1 * (px - pos.entry_price) * (pos.base_qty or 0))
+            risk_manager.close_position(sym)
+            results.append({"symbol": sym, "summary": res.get("summary")})
+        except Exception as exc:  # noqa: BLE001
+            results.append({"symbol": sym, "error": str(exc)})
+    await notify(f"🟩 信用ショートを解消: {len(results)}件（ロングは維持）")
+    return JSONResponse(content={"closed_shorts": results})
 
 
 class KillswitchBody(BaseModel):
