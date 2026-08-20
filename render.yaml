@@ -72,6 +72,18 @@ services:
         value: "8" # モメンタム保有上位N銘柄（月次で入れ替える想定）
       - key: STOCKS_MOM_LOOKBACK
         value: "126" # 上昇率の測定期間(営業日)。126≒6ヶ月
+      - key: CRYPTO_PAPER_ENABLED
+        value: "true" # 暗号資産モメンタムのペーパー検証(実発注なし)。本番切替の判断材料
+      - key: CRYPTO_PAPER_START
+        value: "2026-08-20" # ペーパー運用の起点日(この日を仮想元本として前進追跡)
+      - key: CRYPTO_PAPER_CAPITAL
+        value: "100000" # 仮想の初期資金(円・表示用)。実際のお金は動かさない
+      - key: CRYPTO_MOM_TOP
+        value: "5" # モメンタム保有上位N
+      - key: CRYPTO_MOM_LOOKBACK
+        value: "90" # 上昇率の測定期間(営業日)
+      - key: CRYPTO_MOM_REBAL
+        value: "30" # 入替間隔(営業日)
       - key: MONITOR_INTERVAL_SEC
         value: "60"
       - key: MAX_DAILY_LOSS_JPY

@@ -78,6 +78,10 @@ async def lifespan(app: FastAPI):
     if settings.stocks_enabled:
         from . import stocks
         tasks.append(asyncio.create_task(stocks.stocks_loop()))
+    # 暗号資産モメンタムのペーパー検証（実発注なし・本番売買とは別系統）
+    if settings.crypto_paper_enabled:
+        from . import crypto_momentum
+        tasks.append(asyncio.create_task(crypto_momentum.crypto_paper_loop()))
     try:
         yield
     finally:
@@ -348,6 +352,81 @@ async def stocks_run(request: Request):
     return JSONResponse({"ran": True, **summary})
 
 
+@app.get("/paper")
+async def crypto_paper(secret: str = "", format: str = "html"):
+    """暗号資産モメンタムのペーパー検証（実発注ゼロ・本番売買とは別系統）。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    from . import crypto_momentum
+    res = await crypto_momentum.paper_status()
+    if format == "json":
+        return JSONResponse({"enabled": settings.crypto_paper_enabled,
+                             "start": settings.crypto_paper_start, **{k: v for k, v in res.items()
+                             if k not in ("curve", "buyhold")}})
+    esc = html_lib.escape
+
+    def pct(v):
+        return "-" if v is None else f"{'+' if v >= 0 else ''}{v * 100:.1f}%"
+
+    cap = settings.crypto_paper_capital
+    rows = "".join(
+        f"<tr><td class='l'>{esc(h['sym'])}</td><td>{pct(h.get('mom'))}</td>"
+        f"<td>{h['weight'] * 100:.0f}%</td></tr>"
+        for h in res["holdings"]) or "<tr><td class='l muted' colspan='3'>現在ノーポジション（上昇トレンドの銘柄なし＝現金退避中）</td></tr>"
+    # 簡易スパークライン
+    spark = ""
+    cv = [v for _, v in res.get("curve", [])]
+    if len(cv) >= 2:
+        lo, hi = min(cv), max(cv)
+        rng = (hi - lo) or 1
+        pts = " ".join(f"{i / (len(cv) - 1) * 300:.1f},{40 - (v - lo) / rng * 38:.1f}" for i, v in enumerate(cv))
+        col = "#1c7a3f" if res["ret"] >= 0 else "#c23b2e"
+        spark = f"<svg width='300' height='42' style='margin:.4rem 0'><polyline points='{pts}' fill='none' stroke='{col}' stroke-width='2'/></svg>"
+    color = "#1c7a3f" if res["ret"] >= 0 else "#c23b2e"
+    page = (
+        "<!doctype html><html lang='ja'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>暗号資産モメンタム検証</title><style>"
+        "body{font-family:-apple-system,sans-serif;margin:1.2rem;color:#111;background:#fafafa}"
+        "table{border-collapse:collapse;width:100%;max-width:520px;background:#fff;font-size:.9rem}"
+        "th,td{border:1px solid #ddd;padding:.45rem .6rem;text-align:right}"
+        ".l{text-align:left}.muted{color:#888}th{background:#f0f0f0}"
+        ".big{font-size:1.8rem;font-weight:800}button{padding:.5rem 1rem;font-size:1rem;margin:.4rem 0}"
+        ".card{background:#fff;border:1px solid #e2e2e2;border-radius:12px;padding:1rem;max-width:520px;margin:.6rem 0}"
+        "</style></head><body>"
+        "<h1>🧪 暗号資産モメンタム検証（ペーパー）</h1>"
+        "<p class='muted'>本番(bitbank)のパワーゾーンを切り替える前の<b>紙上テスト</b>。"
+        f"起点 {esc(settings.crypto_paper_start)} を仮想元本¥{cap:,.0f}として、モメンタム"
+        f"（200日線上・上昇率上位{settings.crypto_mom_top}・{settings.crypto_mom_rebal}日ごと入替）"
+        "を追跡します。<b>実際の売買は一切しません。</b>"
+        f"{'' if settings.crypto_paper_enabled else '（現在オフ）'}</p>"
+        "<div class='card'>"
+        f"<div>仮想資産　<span class='big' style='color:{color}'>¥{res['value']:,.0f}</span>"
+        f"　<span style='color:{color}'>({pct(res['ret'])})</span></div>"
+        f"{spark}"
+        f"<div class='muted'>元本 ¥{cap:,.0f}　／　同期間の買い持ち {pct(res['bh_ret'])}</div></div>"
+        "<script>const S=\"__S__\";</script>"
+        "<button onclick=\"fetch('/paper/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:S})}).then(r=>r.json()).then(d=>alert('検証レポート送信: '+JSON.stringify(d)))\">📨 今すぐ検証レポートを送る</button>"
+        "<h3>現在の仮想保有</h3>"
+        f"<table><tr><th class='l'>銘柄</th><th>上昇率</th><th>保有比率</th></tr>{rows}</table>"
+        "<p class='muted'>データ源: 本番と同じBinance日足。手数料込み(片道0.12%)。"
+        "※これは検証用の仮想成績で、実際のお金は動いていません。本番切替はこの推移を見て判断してください。</p>"
+        "</body></html>"
+    )
+    return HTMLResponse(page.replace("__S__", secret))
+
+
+@app.post("/paper/run")
+async def crypto_paper_run(request: Request):
+    """暗号資産ペーパー検証を今すぐ実行してDiscordへレポート送信（手動テスト用・実発注なし）。"""
+    body = await request.json()
+    if not verify_secret(body.get("secret", ""), settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    from . import crypto_momentum
+    summary = await crypto_momentum.run_and_notify()
+    return JSONResponse({"ran": True, **summary})
+
+
 @app.get("/tax")
 async def tax_endpoint(secret: str = "", format: str = "html", year: int = 0):
     """年間損益サマリー（確定申告の把握・目安用）。?format=json / ?format=csv も可。?year=2026 で年指定。"""
@@ -392,6 +471,7 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
   <a href='/tax?secret=__S__' target='_blank'>🧾 年間損益(税金の目安)</a><br>
   <a href='/powerzones?secret=__S__' target='_blank'>⚡ パワーゾーン状況</a> ／
   <a href='/stocks?secret=__S__' target='_blank'>📈 株モメンタム</a> ／
+  <a href='/paper?secret=__S__' target='_blank'>🧪 暗号資産ペーパー検証</a> ／
   <a href='/screen?secret=__S__' target='_blank'>🔬 銘柄スクリーニング</a> ／
   <a href='/config?secret=__S__' target='_blank'>⚙️ パラメーター調整</a> ／
   <a href='/backtest' target='_blank'>📊 戦略バックテスト</a> ／

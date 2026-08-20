@@ -24,6 +24,7 @@ _TEST_ENV = {
     "NOTIFY_ENABLED": "false",
     "DISCORD_WEBHOOK_URL": "",
     "STOCKS_ENABLED": "false",  # テストで株モニターのループ/ネット取得を起動しない
+    "CRYPTO_PAPER_ENABLED": "false",  # テストで暗号資産ペーパー検証のループ/ネット取得を起動しない
 }
 for _k, _v in _TEST_ENV.items():
     os.environ.setdefault(_k, _v)

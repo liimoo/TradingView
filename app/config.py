@@ -115,6 +115,18 @@ class Settings:
     # （旧）パワーゾーンの「もうすぐ買い」閾値。モメンタム移行後は未使用だが後方互換で残置。
     stocks_near_rsi: float = field(default_factory=lambda: float(_get("STOCKS_NEAR_RSI", "35")))
 
+    # ===== 暗号資産モメンタムのペーパー検証（実発注なし・本番PowerZonesとは別系統） =====
+    # true=起点日から仮想資金でモメンタムを運用したらどうなるかを毎日再計算し、/paperで表示・月次通知。
+    crypto_paper_enabled: bool = field(default_factory=lambda: _get("CRYPTO_PAPER_ENABLED", "false").lower() in ("1", "true", "yes"))
+    # ペーパー運用の起点日(JST)。この日を100(=capital)としてフォワードで追跡する。
+    crypto_paper_start: str = field(default_factory=lambda: _get("CRYPTO_PAPER_START", "2026-08-20"))
+    # 仮想の初期資金（円・表示用）。実際のお金は一切動かさない。
+    crypto_paper_capital: float = field(default_factory=lambda: float(_get("CRYPTO_PAPER_CAPITAL", "100000")))
+    # モメンタム保有上位N・上昇率の計測期間(営業日)・入替間隔(営業日)。
+    crypto_mom_top: int = field(default_factory=lambda: int(_get("CRYPTO_MOM_TOP", "5")))
+    crypto_mom_lookback: int = field(default_factory=lambda: int(_get("CRYPTO_MOM_LOOKBACK", "90")))
+    crypto_mom_rebal: int = field(default_factory=lambda: int(_get("CRYPTO_MOM_REBAL", "30")))
+
     # ===== 戦略モード =====
     # "webhook" = 旧: TradingViewのRSIアラートを受けて売買（15分逆張り・ロング+ショート）
     # "powerzones" = 新: サーバが日足でLarry ConnorsのRSIパワーゾーンを計算し売買（ロングのみ）
