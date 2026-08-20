@@ -43,3 +43,25 @@ def test_reconcile_no_change():
     held = ["BTC/JPY", "ETH/JPY"]
     sells, buys = ml.reconcile(held, ["ETH/JPY", "BTC/JPY"])
     assert sells == [] and buys == []    # 同じ顔ぶれなら売買なし
+
+
+def test_plan_rebalance_full():
+    # A=過大→削り, C=新規→買い, B=目標外→全売り, 目標1銘柄=80円
+    plan = ml.plan_rebalance({"A/JPY": 100.0, "B/JPY": 100.0},
+                             target=["A/JPY", "C/JPY"], target_quote=80.0, min_order=10.0)
+    assert plan["sell_all"] == ["B/JPY"]
+    assert plan["trim"] == [("A/JPY", 20.0)]         # 100→80 は 20円削る
+    assert plan["buy"] == [("C/JPY", 80.0)]          # 0→80 は 80円買う
+
+
+def test_plan_rebalance_ignores_small_diffs():
+    # 目標80に対し 75/85 は min_order=10未満の差なので触らない
+    plan = ml.plan_rebalance({"A/JPY": 75.0, "B/JPY": 85.0},
+                             target=["A/JPY", "B/JPY"], target_quote=80.0, min_order=10.0)
+    assert plan["sell_all"] == [] and plan["trim"] == [] and plan["buy"] == []
+
+
+def test_plan_rebalance_new_only():
+    plan = ml.plan_rebalance({}, target=["A/JPY", "B/JPY"], target_quote=100.0, min_order=10.0)
+    assert plan["sell_all"] == []
+    assert plan["buy"] == [("A/JPY", 100.0), ("B/JPY", 100.0)]

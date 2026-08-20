@@ -18,8 +18,9 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from .config import settings
+from .config import settings, sized_quote
 from . import powerzones as pz
+from .broker import broker
 from .indicators import sma
 from .notifier import notify
 from .risk import risk_manager
@@ -54,10 +55,29 @@ def momentum_targets(data: dict, top_n: int, look: int, sma_len: int) -> list:
 
 
 def reconcile(held: list, target: list) -> tuple:
-    """保有(held)と目標(target)から、売る銘柄・買う銘柄を出す。"""
+    """保有(held)と目標(target)から、売る銘柄・買う銘柄を出す（新規/退出のみ）。"""
     sells = [s for s in held if s not in target]
     buys = [s for s in target if s not in held]
     return sells, buys
+
+
+def plan_rebalance(current_values: dict, target: list, target_quote: float,
+                   min_order: float) -> dict:
+    """各建玉の時価(current_values)と目標(target・1銘柄=target_quote円)から増減プランを出す（純粋関数）。
+
+    戻り: {'sell_all':[sym...], 'trim':[(sym,quote)...], 'buy':[(sym,quote)...]}
+      sell_all = 目標から外れた銘柄（全部売る）
+      trim     = 目標超過ぶんを売る額 / buy = 目標未達ぶんを買う額（min_order未満の微差は無視）
+    """
+    sell_all = [s for s in current_values if s not in target]
+    trim, buy = [], []
+    for s in target:
+        diff = target_quote - current_values.get(s, 0.0)
+        if diff > min_order:
+            buy.append((s, diff))
+        elif -diff > min_order:
+            trim.append((s, -diff))
+    return {"sell_all": sell_all, "trim": trim, "buy": buy}
 
 
 # ---- 本番実行（発注は pz._execute を流用） ----
@@ -78,8 +98,79 @@ async def _gather() -> dict:
     return data
 
 
+def _position_values() -> dict:
+    """現在のロング建玉の時価(円)を {sym: value} で返す。"""
+    out = {}
+    for sym, p in risk_manager._positions.items():
+        if p.side != "long" or not p.base_qty:
+            continue
+        px = pz._safe_ticker(sym)
+        if px:
+            out[sym] = p.base_qty * px
+    return out
+
+
+async def _sell_all(sym: str) -> None:
+    """建玉を全部売る（退出）。"""
+    pos = risk_manager.get_position(sym)
+    if pos:
+        await pz._execute(sym, "sell", pos)
+
+
+async def _trim(sym: str, quote: float) -> None:
+    """建玉を quote円ぶん減らす（目標超過の削り）。"""
+    pos = risk_manager.get_position(sym)
+    px = await asyncio.to_thread(pz._safe_ticker, sym)
+    if not pos or not px:
+        return
+    qty = min(quote / px, pos.base_qty)
+    if qty <= 0:
+        return
+    try:
+        res = await asyncio.to_thread(broker.sell, sym, qty, px)
+    except Exception as exc:  # noqa: BLE001
+        await notify(f"❌ モメンタム削り売り エラー {sym}: {exc}")
+        return
+    filled = res.get("filled_base") or qty
+    if pos.entry_price:
+        risk_manager.record_close((px - pos.entry_price) * filled)
+    pos.base_qty = max(0.0, pos.base_qty - filled)
+    if pos.base_qty * px < settings.min_order_jpy:
+        risk_manager.close_position(sym)
+    await notify(f"➖ モメンタム削り {sym} @ {px}（目標20%へ調整・約¥{quote:.0f}）")
+
+
+async def _buy(sym: str, quote: float) -> None:
+    """quote円ぶん買う（新規 or 増し玉）。取得単価は加重平均で更新。"""
+    if quote < settings.min_order_jpy:
+        return
+    px = await asyncio.to_thread(pz._safe_ticker, sym)
+    if not px:
+        return
+    try:
+        res = await asyncio.to_thread(broker.buy, sym, quote, px)
+    except Exception as exc:  # noqa: BLE001
+        await notify(f"❌ モメンタム買い エラー {sym}: {exc}")
+        return
+    filled = res.get("filled_base") or 0.0
+    fp = res.get("filled_price") or px
+    pos = risk_manager.get_position(sym)
+    if pos and pos.base_qty:  # 増し玉：数量合算・取得単価を加重平均
+        new_qty = pos.base_qty + filled
+        pos.entry_price = ((pos.base_qty * pos.entry_price) + filled * fp) / new_qty if new_qty else fp
+        pos.base_qty = new_qty
+        await notify(f"➕ モメンタム増し玉 {sym} @ {fp}（目標20%へ調整・約¥{quote:.0f}）\n{res.get('summary')}")
+    else:
+        risk_manager.open_position(sym, filled, fp, side="long")
+        await notify(f"🟢 モメンタム買い {sym} @ {fp}（200日線上・上昇率上位）\n{res.get('summary')}")
+
+
 async def rebalance() -> dict:
-    """モメンタム上位へ保有を入れ替える（実発注・リスクチェックは pz._execute を流用）。"""
+    """モメンタム上位へ「継続保有分も含めて」目標20%へ揃え直す（月次・実発注）。
+
+    退出＝全売り／保有中で超過＝削り／未達＝増し玉／新規＝買い。売り→買いの順で現金を確保。
+    実発注は broker、リスク管理は risk_manager を流用。損切りは置かない（順位で自動入替）。
+    """
     if risk_manager.is_killed():
         await notify("⏸️ モメンタム: キルスイッチON中のためリバランスを見送りました")
         return {"skipped": "killed"}
@@ -89,42 +180,48 @@ async def rebalance() -> dict:
         return {"skipped": "no_data"}
     target = momentum_targets(data, settings.crypto_mom_top,
                               settings.crypto_mom_lookback, settings.pz_sma_len)
-    held = [s for s, p in risk_manager._positions.items() if p.side == "long"]
-    sells, buys = reconcile(held, target)
 
-    sold, bought = [], []
-    for sym in sells:  # 上位から外れた銘柄を売却
-        pos = risk_manager.get_position(sym)
+    # 1銘柄あたりの目標額 = 総資産 × order_size_pct（上位が揃えば最大 top_n×pct まで投資）
+    assets = free = 0.0
+    if broker.has_exchange:
         try:
-            await pz._execute(sym, "sell", pos)
-            sold.append(sym)
+            assets, free = await asyncio.to_thread(broker.portfolio)
         except Exception:  # noqa: BLE001
-            logger.exception("モメンタム売却エラー: %s", sym)
+            pass
+    target_quote = sized_quote(settings.order_size_pct, assets or 0.0, assets or 0.0,
+                               settings.order_quote_amount)
 
-    open_now = len([s for s in held if s not in sells])
-    for sym in buys:  # 新しく上位に入った銘柄を買い（枠・リスク上限を尊重）
-        if open_now >= settings.max_open_positions:
-            break
-        if not risk_manager.precheck(sym, "buy", check_allowed=False).allowed:
-            continue
-        try:
-            await pz._execute(sym, "buy", None)
-            bought.append(sym)
-            open_now += 1
-        except Exception:  # noqa: BLE001
-            logger.exception("モメンタム買いエラー: %s", sym)
+    current = _position_values()
+    plan = plan_rebalance(current, target, target_quote, settings.min_order_jpy)
+    daily_blocked = bool(risk_manager.daily_block_reason())
 
-    summary = {"target": target, "sold": sold, "bought": bought,
-               "held_after": [s for s, p in risk_manager._positions.items() if p.side == "long"]}
+    # 売り（退出→削り）を先に行い現金を確保、次に買い（増し玉→新規）
+    for sym in plan["sell_all"]:
+        await _sell_all(sym)
+    for sym, q in plan["trim"]:
+        await _trim(sym, q)
+    if daily_blocked:
+        await notify("⏸️ モメンタム: 本日の損失上限に達しているため買いは見送り（売り/削りのみ実施）")
+    else:
+        for sym, q in plan["buy"]:
+            await _buy(sym, q)
+
+    held_after = [s for s, p in risk_manager._positions.items() if p.side == "long"]
+    summary = {"target": target, "target_quote": round(target_quote),
+               "sell_all": plan["sell_all"], "trim": [s for s, _ in plan["trim"]],
+               "buy": [s for s, _ in plan["buy"]], "held_after": held_after}
     tgt_txt = "、".join(target) if target else "なし（現金）"
     lines = [f"🔀 モメンタム月次リバランス（{datetime.now(JST):%Y-%m-%d}）",
-             f"🎯 今月の上位{settings.crypto_mom_top}: {tgt_txt}"]
-    if sold:
-        lines.append(f"➖ 売却: {'、'.join(sold)}")
-    if bought:
-        lines.append(f"➕ 新規買い: {'、'.join(bought)}")
-    if not sold and not bought:
-        lines.append("＝ 入れ替えなし（保有継続）")
+             f"🎯 今月の上位{settings.crypto_mom_top}: {tgt_txt}",
+             f"（1銘柄の目標 ≈ ¥{target_quote:,.0f}／総資産の{settings.order_size_pct*100:.0f}%）"]
+    if plan["sell_all"]:
+        lines.append(f"➖ 退出: {'、'.join(plan['sell_all'])}")
+    if plan["trim"]:
+        lines.append(f"🔻 削り: {'、'.join(s for s, _ in plan['trim'])}")
+    if plan["buy"]:
+        lines.append(f"➕ 買い/増し: {'、'.join(s for s, _ in plan['buy'])}")
+    if not any((plan["sell_all"], plan["trim"], plan["buy"])):
+        lines.append("＝ 調整なし（すでに目標どおり）")
     await notify("\n".join(lines))
     logger.info("モメンタム リバランス: %s", summary)
     return summary
