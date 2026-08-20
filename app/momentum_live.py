@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 
 from .config import settings, sized_quote
 from . import powerzones as pz
+from . import journal
 from .broker import broker
 from .indicators import sma
 from .notifier import notify
@@ -137,6 +138,9 @@ async def _trim(sym: str, quote: float) -> None:
     pos.base_qty = max(0.0, pos.base_qty - filled)
     if pos.base_qty * px < settings.min_order_jpy:
         risk_manager.close_position(sym)
+    journal.record_trade({"mode": settings.trading_mode, "action": "sell", "symbol": sym,
+                          "price": px, "filled_base": filled, "status": res.get("status"),
+                          "order_id": (res.get("order") or {}).get("id"), "reason": "momentum_trim"})
     await notify(f"➖ モメンタム削り {sym} @ {px}（目標20%へ調整・約¥{quote:.0f}）")
 
 
@@ -163,6 +167,9 @@ async def _buy(sym: str, quote: float) -> None:
     else:
         risk_manager.open_position(sym, filled, fp, side="long")
         await notify(f"🟢 モメンタム買い {sym} @ {fp}（200日線上・上昇率上位）\n{res.get('summary')}")
+    journal.record_trade({"mode": settings.trading_mode, "action": "buy", "symbol": sym,
+                          "price": fp, "filled_base": filled, "status": res.get("status"),
+                          "order_id": (res.get("order") or {}).get("id"), "reason": "momentum"})
 
 
 async def rebalance() -> dict:

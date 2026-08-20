@@ -106,9 +106,9 @@ def render_positions_html(data: dict) -> str:
             )
         parts.append("</table><p class='muted'>※含み損益は概算（現在値ベース）。手数料・金利は含みません</p>")
 
-    # 信用の証拠金状況（パワーゾーンはロングのみなので非表示）
+    # 信用の証拠金状況（旧Webhook戦略のみ表示。パワーゾーン/モメンタムはロング現物のみ）
     ms = data.get("margin_status") or {}
-    if ms and settings.strategy != "powerzones":
+    if ms and settings.strategy == "webhook":
         parts.append("<h2>信用の証拠金状況</h2><table>")
         parts.append(f"<tr><td class='l'>保証金率</td><td>{ms.get('total_margin_balance_percentage') or '-'} %</td></tr>")
         parts.append(f"<tr><td class='l'>ロスカット率</td><td>{ms.get('losscut_percentage') or '-'} %</td></tr>")
@@ -131,7 +131,9 @@ def render_positions_html(data: dict) -> str:
 
 
 def _reason_label(reason: str | None) -> str:
-    return {"stop_loss": "損切り", "take_profit": "利確", "rsi_signal": "RSI70", "entry": ""}.get(reason or "", reason or "")
+    return {"stop_loss": "損切り", "take_profit": "利確", "rsi_signal": "RSI70", "entry": "",
+            "momentum": "新規", "momentum_trim": "削り", "momentum_exit": "入替",
+            "powerzones": "", "powerzones_exit": "決済(入替)"}.get(reason or "", reason or "")
 
 
 def _fmt_hold(sec) -> str:
@@ -427,13 +429,14 @@ def render_html(data: dict) -> str:
         parts.append("</div>")
         if rts:
             is_pz = settings.strategy == "powerzones"
+            is_mom = settings.strategy == "momentum"
             if is_pz:
                 pz_e, pz_x = _fmt_num(settings.pz_entry), _fmt_num(settings.pz_exit)
-            else:
+            elif not is_mom:
                 os_th = _fmt_num(settings.rsi_oversold)
                 ob_th = _fmt_num(settings.rsi_overbought)
             parts.append(
-                "<table><tr><th>#</th><th class='l'>方向</th><th class='l'>判定(RSI)</th>"
+                "<table><tr><th>#</th><th class='l'>方向</th><th class='l'>判定</th>"
                 "<th class='l'>エントリー(JST)</th><th>取得単価</th><th>取得RSI</th>"
                 "<th class='l'>決済(JST)</th><th>決済単価</th><th>数量</th><th>損益</th><th>損益%</th><th>保有</th><th class='l'>理由</th></tr>"
             )
@@ -443,8 +446,10 @@ def render_html(data: dict) -> str:
                 pcls = "pos" if r["pnl"] >= 0 else "neg"
                 is_long = r.get("side") == "long"
                 side_jp = "ロング🟩" if is_long else "ショート🟦"
-                # 判定根拠。パワーゾーンは 200日線上でRSI≤30買い→RSI>55利確（ロングのみ）
-                if is_pz:
+                # 判定根拠。モメンタム=200日線上・上昇率上位を保有→順位落ちで売り。パワーゾーン=RSI逆張り。
+                if is_mom:
+                    judge = "200日線上・上昇率上位 → 順位落ちで売り"
+                elif is_pz:
                     judge = f"買 ≤{pz_e}(200日線上) → 利確 >{pz_x}"
                 elif is_long:
                     judge = f"買 ≤{os_th} → 売 ≥{ob_th}"
