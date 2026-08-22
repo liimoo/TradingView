@@ -508,6 +508,7 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
   <a href='/paper?secret=__S__' target='_blank'>🧪 暗号資産ペーパー検証</a> ／
   <a href='/config?secret=__S__' target='_blank'>⚙️ パラメーター調整</a> ／
   <a href='/backtest' target='_blank'>📊 戦略バックテスト</a> ／
+  <a href='/simulation' target='_blank'>🧮 開始時期別シミュレーション</a> ／
   <a href='/momentum' target='_blank'>🔀 モメンタム移行の報告</a> ／
   <a href='/guide' target='_blank'>📖 通知の見方</a> ／
   <a href='/health' target='_blank'>🩺 稼働状況</a>
@@ -589,6 +590,11 @@ try:
 except Exception:  # noqa: BLE001
     _MOMENTUM_HTML = "<!doctype html><meta charset='utf-8'><p>モメンタム移行の報告は準備中です。</p>"
 
+try:
+    _SIMULATION_HTML = (Path(__file__).resolve().parent / "simulation.html").read_text(encoding="utf-8")
+except Exception:  # noqa: BLE001
+    _SIMULATION_HTML = "<!doctype html><meta charset='utf-8'><p>シミュレーションは準備中です。</p>"
+
 
 @app.get("/spec")
 async def spec():
@@ -606,6 +612,12 @@ async def backtest_page():
 async def momentum_page():
     """パワーゾーン→モメンタム移行の報告（長さん共有用・合言葉不要の公開ページ）。株・暗号資産の検証まとめ。秘密情報は含まない。"""
     return HTMLResponse(_MOMENTUM_HTML)
+
+
+@app.get("/simulation")
+async def simulation_page():
+    """モメンタム戦略で¥100万を各開始時期(2022〜)から運用した損益シミュレーション（合言葉不要の公開ページ）。仮想成績で実口座データは含まない。"""
+    return HTMLResponse(_SIMULATION_HTML)
 
 
 @app.get("/guide")
