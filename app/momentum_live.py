@@ -188,15 +188,19 @@ async def rebalance() -> dict:
     target = momentum_targets(data, settings.crypto_mom_top,
                               settings.crypto_mom_lookback, settings.pz_sma_len)
 
-    # 1銘柄あたりの目標額 = 総資産 × order_size_pct（上位が揃えば最大 top_n×pct まで投資）
+    # 1銘柄あたりの目標額 = 総資産 × order_size_pct。
+    # ただし総投資は MAX_INVEST(=95%) までに抑え、5%は現金で残す。
+    # これをしないと 5銘柄×20%=100% で現金が尽き、最後の買いが bitbank 60002
+    # （成行買いが資金上限を超過）で失敗する。手数料と成行時の確保余裕分にも必要。
+    MAX_INVEST = 0.95
     assets = free = 0.0
     if broker.has_exchange:
         try:
             assets, free = await asyncio.to_thread(broker.portfolio)
         except Exception:  # noqa: BLE001
             pass
-    target_quote = sized_quote(settings.order_size_pct, assets or 0.0, assets or 0.0,
-                               settings.order_quote_amount)
+    per = min(settings.order_size_pct, MAX_INVEST / max(1, settings.crypto_mom_top))
+    target_quote = sized_quote(per, assets or 0.0, assets or 0.0, settings.order_quote_amount)
 
     current = _position_values()
     plan = plan_rebalance(current, target, target_quote, settings.min_order_jpy)
@@ -220,7 +224,7 @@ async def rebalance() -> dict:
     tgt_txt = "、".join(target) if target else "なし（現金）"
     lines = [f"🔀 モメンタム月次リバランス（{datetime.now(JST):%Y-%m-%d}）",
              f"🎯 今月の上位{settings.crypto_mom_top}: {tgt_txt}",
-             f"（1銘柄の目標 ≈ ¥{target_quote:,.0f}／総資産の{settings.order_size_pct*100:.0f}%）"]
+             f"（1銘柄の目標 ≈ ¥{target_quote:,.0f}／総資産の{per*100:.0f}%・現金約5%は温存）"]
     if plan["sell_all"]:
         lines.append(f"➖ 退出: {'、'.join(plan['sell_all'])}")
     if plan["trim"]:
