@@ -126,6 +126,8 @@ class Settings:
     crypto_mom_top: int = field(default_factory=lambda: int(_get("CRYPTO_MOM_TOP", "5")))
     crypto_mom_lookback: int = field(default_factory=lambda: int(_get("CRYPTO_MOM_LOOKBACK", "90")))
     crypto_mom_rebal: int = field(default_factory=lambda: int(_get("CRYPTO_MOM_REBAL", "30")))
+    # 地合いフィルター: true=クリプト全体(等ウェイト指数)が200日線割れの弱気相場では全て現金へ退避。
+    crypto_regime_filter: bool = field(default_factory=lambda: _get("CRYPTO_REGIME_FILTER", "true").lower() in ("1", "true", "yes"))
 
     # ===== 戦略モード =====
     # "webhook" = 旧: TradingViewのRSIアラートを受けて売買（15分逆張り・ロング+ショート）

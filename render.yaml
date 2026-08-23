@@ -84,6 +84,8 @@ services:
         value: "90" # 上昇率の測定期間(営業日)
       - key: CRYPTO_MOM_REBAL
         value: "30" # 入替間隔(営業日)
+      - key: CRYPTO_REGIME_FILTER
+        value: "true" # 地合いフィルター: クリプト全体が200日線割れの弱気相場は全て現金へ退避
       - key: MONITOR_INTERVAL_SEC
         value: "60"
       - key: MAX_DAILY_LOSS_JPY

@@ -62,6 +62,34 @@ def reconcile(held: list, target: list) -> tuple:
     return sells, buys
 
 
+def market_index(data: dict) -> list:
+    """全銘柄の等ウェイト正規化指数（地合い判定用）。各銘柄を期首=1に正規化して平均。"""
+    if not data:
+        return []
+    n = min(len(c) for c in data.values() if c)
+    if n < 2:
+        return []
+    out = []
+    for i in range(n):
+        vals = []
+        for c in data.values():
+            w = c[-n:]
+            if w[0]:
+                vals.append(w[i] / w[0])
+        out.append(sum(vals) / len(vals) if vals else 1.0)
+    return out
+
+
+def regime_is_up(data: dict, sma_len: int) -> bool:
+    """クリプト全体の等ウェイト指数が200日SMAより上か（＝リスクオンの地合いか）。
+    判定不能（本数不足）なら True（通常運用）を返し、誤って全清算しないようにする。"""
+    idx = market_index(data)
+    if len(idx) < sma_len + 1:
+        return True
+    sm = sma(idx, sma_len)
+    return bool(sm[-1] is not None and idx[-1] > sm[-1])
+
+
 def plan_rebalance(current_values: dict, target: list, target_quote: float,
                    min_order: float) -> dict:
     """各建玉の時価(current_values)と目標(target・1銘柄=target_quote円)から増減プランを出す（純粋関数）。
@@ -188,6 +216,12 @@ async def rebalance() -> dict:
     target = momentum_targets(data, settings.crypto_mom_top,
                               settings.crypto_mom_lookback, settings.pz_sma_len)
 
+    # 地合いフィルター: クリプト全体が200日線割れの弱気相場なら、全て現金へ退避（target空）。
+    regime_down = False
+    if settings.crypto_regime_filter and not regime_is_up(data, settings.pz_sma_len):
+        regime_down = True
+        target = []
+
     # 1銘柄あたりの目標額 = 総資産 × order_size_pct。
     # ただし総投資は MAX_INVEST(=95%) までに抑え、5%は現金で残す。
     # これをしないと 5銘柄×20%=100% で現金が尽き、最後の買いが bitbank 60002
@@ -218,13 +252,15 @@ async def rebalance() -> dict:
             await _buy(sym, q)
 
     held_after = [s for s, p in risk_manager._positions.items() if p.side == "long"]
-    summary = {"target": target, "target_quote": round(target_quote),
+    summary = {"target": target, "target_quote": round(target_quote), "regime_down": regime_down,
                "sell_all": plan["sell_all"], "trim": [s for s, _ in plan["trim"]],
                "buy": [s for s, _ in plan["buy"]], "held_after": held_after}
     tgt_txt = "、".join(target) if target else "なし（現金）"
-    lines = [f"🔀 モメンタム月次リバランス（{datetime.now(JST):%Y-%m-%d}）",
-             f"🎯 今月の上位{settings.crypto_mom_top}: {tgt_txt}",
-             f"（1銘柄の目標 ≈ ¥{target_quote:,.0f}／総資産の{per*100:.0f}%・現金約5%は温存）"]
+    lines = [f"🔀 モメンタム月次リバランス（{datetime.now(JST):%Y-%m-%d}）"]
+    if regime_down:
+        lines.append("🛡️ 地合い弱気（クリプト全体が200日線↓）→ 全て現金へ退避")
+    lines += [f"🎯 今月の上位{settings.crypto_mom_top}: {tgt_txt}",
+              f"（1銘柄の目標 ≈ ¥{target_quote:,.0f}／総資産の{per*100:.0f}%・現金約5%は温存）"]
     if plan["sell_all"]:
         lines.append(f"➖ 退出: {'、'.join(plan['sell_all'])}")
     if plan["trim"]:

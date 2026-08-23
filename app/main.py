@@ -507,6 +507,7 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
   <a href='/stocks?secret=__S__' target='_blank'>📈 株モメンタム</a> ／
   <a href='/paper?secret=__S__' target='_blank'>🧪 暗号資産ペーパー検証</a> ／
   <a href='/config?secret=__S__' target='_blank'>⚙️ パラメーター調整</a> ／
+  <a href='/playbook' target='_blank'>📋 運用戦略まとめ</a> ／
   <a href='/backtest' target='_blank'>📊 戦略バックテスト</a> ／
   <a href='/strategies' target='_blank'>🔬 戦略ラボ(L/S比較)</a> ／
   <a href='/simulation' target='_blank'>🧮 開始時期別シミュレーション</a> ／
@@ -601,6 +602,11 @@ try:
 except Exception:  # noqa: BLE001
     _STRATEGIES_HTML = "<!doctype html><meta charset='utf-8'><p>戦略ラボは準備中です。</p>"
 
+try:
+    _PLAYBOOK_HTML = (Path(__file__).resolve().parent / "playbook.html").read_text(encoding="utf-8")
+except Exception:  # noqa: BLE001
+    _PLAYBOOK_HTML = "<!doctype html><meta charset='utf-8'><p>運用戦略まとめは準備中です。</p>"
+
 
 @app.get("/spec")
 async def spec():
@@ -630,6 +636,12 @@ async def simulation_page():
 async def strategies_page():
     """他の定番戦略(移動平均クロス/ドンチャン/ボリンジャー)のロング・ショート・バックテスト比較（合言葉不要の公開ページ）。秘密情報なし。"""
     return HTMLResponse(_STRATEGIES_HTML)
+
+
+@app.get("/playbook")
+async def playbook_page():
+    """現在の本番運用戦略（クリプト・モメンタム・地合いフィルター付き）のまとめ（合言葉不要の公開ページ）。秘密情報なし。"""
+    return HTMLResponse(_PLAYBOOK_HTML)
 
 
 @app.get("/guide")

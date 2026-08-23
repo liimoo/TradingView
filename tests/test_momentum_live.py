@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import pytest
+
 from app import momentum_live as ml
 
 
@@ -65,3 +67,29 @@ def test_plan_rebalance_new_only():
     plan = ml.plan_rebalance({}, target=["A/JPY", "B/JPY"], target_quote=100.0, min_order=10.0)
     assert plan["sell_all"] == []
     assert plan["buy"] == [("A/JPY", 100.0), ("B/JPY", 100.0)]
+
+
+# ---- 地合いフィルター ----
+
+def test_market_index_equal_weight():
+    # 2銘柄が同率で2倍→指数も2倍(=期首1.0→2.0)
+    data = {"A": [100, 150, 200], "B": [10, 15, 20]}
+    idx = ml.market_index(data)
+    assert idx[0] == pytest.approx(1.0) and idx[-1] == pytest.approx(2.0)
+
+
+def test_regime_up_uptrend():
+    # 上昇一貫→指数は自分のSMAより上→リスクオン(True)
+    up = list(range(1, 60))  # 1..59 単調増加
+    assert ml.regime_is_up({"A": up, "B": up}, sma_len=20) is True
+
+
+def test_regime_down_downtrend():
+    # 下降一貫→指数はSMAより下→リスクオフ(False)
+    dn = list(range(60, 1, -1))  # 60..2 単調減少
+    assert ml.regime_is_up({"A": dn, "B": dn}, sma_len=20) is False
+
+
+def test_regime_insufficient_data_defaults_up():
+    # 本数不足なら判定不能→True(通常運用・誤清算しない)
+    assert ml.regime_is_up({"A": [1, 2, 3]}, sma_len=200) is True
