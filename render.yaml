@@ -17,12 +17,12 @@ services:
       - key: TRADING_MODE
         sync: false # DRY_RUN → 準備完了後にダッシュボードで LIVE へ
       - key: ALLOWED_SYMBOLS
-        # パワーゾーン対象=バックテストで厳選した20銘柄（年率15.2%/DD-40%）。悪玉・弱銘柄(XRP,LINK,ENJ,GALA等)は除外
-        value: BTC/JPY,ETH/JPY,DOGE/JPY,LTC/JPY,ATOM/JPY,DOT/JPY,SOL/JPY,AVAX/JPY,BCH/JPY,BNB/JPY,TRX/JPY,XLM/JPY,ADA/JPY,SUI/JPY,QTUM/JPY,MKR/JPY,SAND/JPY,BAT/JPY,MANA/JPY,LPT/JPY
+        # モメンタム対象。ADA/JPYは除外＝入金した保有ADAをbotに取り込ませない/売買させないため(隔離)。
+        value: BTC/JPY,ETH/JPY,DOGE/JPY,LTC/JPY,ATOM/JPY,DOT/JPY,SOL/JPY,AVAX/JPY,BCH/JPY,BNB/JPY,TRX/JPY,XLM/JPY,SUI/JPY,QTUM/JPY,MKR/JPY,SAND/JPY,BAT/JPY,MANA/JPY,LPT/JPY
       - key: ORDER_QUOTE_AMOUNT
-        sync: false # 固定額（ORDER_SIZE_PCT=0 の時のフォールバック）
+        value: "9000" # 1発注=固定¥9,000。総資産(入金ADAで膨張)に釣られないよう固定額運用に切替
       - key: ORDER_SIZE_PCT
-        value: "0.20" # 発注額=総資産の20%（モメンタム上位5で最大100%投資。検証で最良リターン）。0で固定額
+        value: "0" # 0=固定額(ORDER_QUOTE_AMOUNT)を使う。ADA隔離のため%運用は停止(総資産連動を避ける)
       - key: MIN_ORDER_JPY
         value: "100" # これ未満の発注額は資金不足で見送り
       - key: EXCHANGE_ID
