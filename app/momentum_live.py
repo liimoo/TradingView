@@ -200,16 +200,18 @@ async def _buy(sym: str, quote: float) -> None:
                           "order_id": (res.get("order") or {}).get("id"), "reason": "momentum"})
 
 
-async def rebalance() -> dict:
-    """モメンタム上位へ「継続保有分も含めて」目標20%へ揃え直す（月次・実発注）。
+async def rebalance(data: dict | None = None) -> dict:
+    """モメンタム上位へ「継続保有分も含めて」目標へ揃え直す（実発注）。
 
     退出＝全売り／保有中で超過＝削り／未達＝増し玉／新規＝買い。売り→買いの順で現金を確保。
     実発注は broker、リスク管理は risk_manager を流用。損切りは置かない（順位で自動入替）。
+    data を渡すと再取得せずそれを使う（ループ側で日次取得したデータを流用するため）。
     """
     if risk_manager.is_killed():
         await notify("⏸️ モメンタム: キルスイッチON中のためリバランスを見送りました")
         return {"skipped": "killed"}
-    data = await _gather()
+    if data is None:
+        data = await _gather()
     if not data:
         await notify("⚠️ モメンタム: データ取得に失敗（リバランス見送り）")
         return {"skipped": "no_data"}
@@ -287,25 +289,42 @@ def _seconds_until_eval() -> float:
 
 
 _last_rebalance_month: tuple | None = None
+_last_regime_up: bool | None = None
 
 
 async def momentum_loop() -> None:
-    """毎日 pz_eval_hours(JST) に評価し、月が替わったらモメンタムのリバランスを実行するループ。"""
-    global _last_rebalance_month
+    """毎日 pz_eval_hours(JST) に評価。地合いは"日次"で見張り、切替時は即リバランス。
+
+    ・上位N銘柄のローテーション＝月次（月替わりで実行）。
+    ・地合い（リスクオン/オフ）＝毎日チェックし、変化した日はその場でリバランス
+      （例：指数が200日線を回復→翌日には現金から再エントリー／割れ→即現金退避）。
+    """
+    global _last_rebalance_month, _last_regime_up
     if settings.strategy != "momentum":
         logger.info("モメンタム戦略は無効（STRATEGY=%s）", settings.strategy)
         return
     hours = ", ".join(f"{h}:00" for h in settings.pz_eval_hours)
-    logger.info("モメンタム戦略 起動（月次リバランス JST %s頃・上位%d・%d日ごと目安）",
-                hours, settings.crypto_mom_top, settings.crypto_mom_rebal)
+    logger.info("モメンタム戦略 起動（地合い日次チェック＋月次ローテーション JST %s頃・上位%d）",
+                hours, settings.crypto_mom_top)
     while True:
         await asyncio.sleep(_seconds_until_eval())
         now = datetime.now(JST)
         ym = (now.year, now.month)
-        if ym != _last_rebalance_month:  # 月が替わった最初の評価でリバランス（月1回）
-            try:
-                await rebalance()
+        try:
+            data = await _gather()
+            if not data:
+                logger.warning("モメンタム: データ取得失敗（この日は判定スキップ）")
+                await asyncio.sleep(60)
+                continue
+            regime_up_now = (not settings.crypto_regime_filter) or regime_is_up(data, settings.pz_sma_len)
+            month_changed = ym != _last_rebalance_month
+            regime_changed = _last_regime_up is not None and regime_up_now != _last_regime_up
+            if month_changed or regime_changed:
+                reason = "月次ローテーション" if month_changed else ("地合い回復→再開" if regime_up_now else "地合い悪化→退避")
+                logger.info("モメンタム リバランス発火（%s）", reason)
+                await rebalance(data)  # 取得済みデータを流用
                 _last_rebalance_month = ym
-            except Exception:  # noqa: BLE001
-                logger.exception("モメンタム リバランスでエラー")
+            _last_regime_up = regime_up_now
+        except Exception:  # noqa: BLE001
+            logger.exception("モメンタム 評価でエラー")
         await asyncio.sleep(60)
