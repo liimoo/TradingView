@@ -73,7 +73,7 @@ services:
       - key: STOCKS_MOM_LOOKBACK
         value: "126" # 上昇率の測定期間(営業日)。126≒6ヶ月
       - key: CRYPTO_PAPER_ENABLED
-        value: "true" # 暗号資産モメンタムのペーパー検証(実発注なし)。本番切替の判断材料
+        value: "false" # 停止。本番運用が固まったので役目終了(フィルター無しの別ロジックで通知が紛らわしいため)
       - key: CRYPTO_PAPER_START
         value: "2026-08-20" # ペーパー運用の起点日(この日を仮想元本として前進追跡)
       - key: CRYPTO_PAPER_CAPITAL

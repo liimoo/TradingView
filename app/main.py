@@ -505,7 +505,6 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
   <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a> ／
   <a href='/tax?secret=__S__' target='_blank'>🧾 年間損益(税金の目安)</a><br>
   <a href='/stocks?secret=__S__' target='_blank'>📈 株モメンタム</a> ／
-  <a href='/paper?secret=__S__' target='_blank'>🧪 暗号資産ペーパー検証</a> ／
   <a href='/config?secret=__S__' target='_blank'>⚙️ パラメーター調整</a> ／
   <a href='/playbook' target='_blank'>📋 運用戦略まとめ</a> ／
   <a href='/backtest' target='_blank'>📊 戦略バックテスト</a> ／
