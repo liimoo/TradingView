@@ -1,0 +1,119 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>戦略ラボ（ロング/ショート比較）</title>
+<style>
+  :root{--bg:#f4f2ed;--surface:#fff;--surface-2:#faf9f6;--ink:#1d1c19;--muted:#6c685f;--faint:#9a968c;
+    --line:#e6e2d9;--line-strong:#d6d1c5;--accent:#2455d6;--pos:#1c7a3f;--neg:#c23b2e;--grid:#eeece5;
+    --shadow:0 1px 2px rgba(30,28,22,.04),0 8px 24px rgba(30,28,22,.05);--long:#0f9384;--short:#c23b2e;}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161510;--surface:#201f1a;--surface-2:#1a1915;
+    --ink:#ececE4;--muted:#a6a299;--faint:#75716a;--line:#332f28;--line-strong:#403b32;--accent:#7aa2ff;
+    --pos:#5cc47f;--neg:#e8776a;--grid:#2a271f;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+    --long:#1a9e8a;--short:#e8776a;}}
+  :root[data-theme="dark"]{--bg:#161510;--surface:#201f1a;--surface-2:#1a1915;--ink:#ececE4;--muted:#a6a299;
+    --faint:#75716a;--line:#332f28;--line-strong:#403b32;--accent:#7aa2ff;--pos:#5cc47f;--neg:#e8776a;--grid:#2a271f;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);--long:#1a9e8a;--short:#e8776a;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.7;-webkit-font-smoothing:antialiased;
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",YuGothic,"Noto Sans JP",-apple-system,sans-serif;}
+  .wrap{max-width:900px;margin:0 auto;padding:40px 22px 72px}
+  .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700;margin:0 0 10px}
+  h1{font-size:clamp(25px,4.2vw,36px);line-height:1.2;margin:0 0 14px;font-weight:800;text-wrap:balance}
+  .verdict{font-size:clamp(15px,2.1vw,17px);margin:0;max-width:66ch}
+  .verdict b{color:var(--ink)} .verdict .g{color:var(--pos)} .verdict .r{color:var(--neg)}
+  .meta{margin-top:14px;font-size:13px;color:var(--muted)}
+  section{margin-top:42px}
+  h2{font-size:19px;font-weight:800;margin:0 0 4px}
+  .sub{font-size:13.5px;color:var(--muted);margin:0 0 16px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow)}
+  svg{width:100%;height:auto;display:block;overflow:visible}
+  .bl{font-size:12.5px;font-weight:600;fill:var(--ink)}
+  .bv{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+  .zero{stroke:var(--line-strong);stroke-width:1}
+  .axt{fill:var(--faint);font-size:11px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:right;padding:9px 12px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  th:first-child,td:first-child{text-align:left}
+  thead th{font-size:12px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--line-strong)}
+  tbody tr:last-child td{border-bottom:none}
+  td.pos{color:var(--pos);font-weight:700}td.neg{color:var(--neg);font-weight:700}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}
+  .pill.l{color:var(--long);background:rgba(15,147,132,.12)}.pill.s{color:var(--short);background:rgba(194,59,46,.12)}
+  .rowref td{background:var(--surface-2)}
+  .note{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:13.5px;color:var(--muted);margin-top:14px}
+  .note b{color:var(--ink)}.note.key{border-left:3px solid var(--accent)}
+  .lessons{display:grid;gap:12px;margin-top:8px}
+  .lesson{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--pos);border-radius:0 12px 12px 0;padding:14px 18px;box-shadow:var(--shadow)}
+  .lesson.bad{border-left-color:var(--neg)}
+  .lesson h3{margin:0 0 3px;font-size:15px;font-weight:800}.lesson p{margin:0;font-size:13.5px;color:var(--muted)}
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+</style></head><body>
+<div class="wrap">
+  <p class="eyebrow">暗号資産8年 ・ 戦略ラボ</p>
+  <h1>他の戦略はどうか（ロング/ショート）</h1>
+  <p class="verdict">モメンタム・パワーゾーンに加え、定番3戦略（移動平均クロス／ドンチャン・ブレイクアウト／ボリンジャー逆張り）を、それぞれ<b>ロングとショート</b>で検証。結論は明快で、これまでと一致します：<b class="g">トレンド系のロングは強い</b>（ドンチャン +1336%）、<b class="r">逆張りロングは負け</b>、<b class="r">ショートは全戦略で全損級</b>。</p>
+  <p class="meta">対象: Binance日足19銘柄・約8.5年　/　等ウェイト最大5・手数料込み(片道0.12%)　/　過去データのシミュレーション</p>
+
+  <section>
+    <h2>年率(CAGR)で比較</h2>
+    <p class="sub">緑＝ロング / 赤＝ショート。右ほど良い。ショートは全て大きくマイナス。</p>
+    <div class="card"><svg id="bars" role="img" aria-label="戦略別の年率比較"></svg></div>
+  </section>
+
+  <section>
+    <h2>詳細（新規検証3戦略 × ロング/ショート）</h2>
+    <div class="card" style="padding:6px 20px 4px">
+      <div style="overflow-x:auto"><table id="tbl">
+        <thead><tr><th>戦略</th><th>方向</th><th>総リターン</th><th>年率</th><th>最大DD</th><th>2018冬</th><th>2022冬</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+    <p class="sub" style="margin-top:10px">参考（既検証・すべてロング）: モメンタム +4375% / 買い持ち +648% / パワーゾーン +180%。</p>
+  </section>
+
+  <section>
+    <h2>3つの教訓</h2>
+    <div class="lessons">
+      <div class="lesson"><h3>① 暗号資産は「トレンド追随ロング」が効く</h3><p>ドンチャン・ブレイクアウト +1336%、MAクロス +167%、モメンタム +4375%。上がり出したものに乗り、崩れたら現金へ——が一貫して機能。</p></div>
+      <div class="lesson bad"><h3>② 逆張りロングは苦戦</h3><p>ボリンジャー逆張り −83%、パワーゾーンも +180%止まり。暗号資産は「下げたら戻る」より「トレンドが続く」ため、押し目狙いは弱い。</p></div>
+      <div class="lesson bad"><h3>③ ショートは全戦略で全損級</h3><p>どの戦略のショートも −95〜−100%（強制ロスカットで口座消滅）。暴落時だけ稼ぐが、上昇の踏み上げで吹き飛ぶ。<b>ショートはやらない</b>が結論。</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="note key">
+      <b>まとめ。</b> 検証したすべての戦略で、勝ち筋は<b>「トレンド系のロング」</b>に集約されます。現在の本番（モメンタム・ロング専用）はこの結論に沿った選択です。次点はドンチャン・ブレイクアウト（順張りの別実装）。<b>逆張りロングとあらゆるショートは非推奨</b>。<br><br>
+      ⚠️生存者バイアスあり（今も残る19銘柄）。最大DDはどれも−65〜−100%と激しく、過去の結果は将来を保証しません。実口座はbitbank履歴が正です。
+    </div>
+  </section>
+  <footer>※過去データの機械的シミュレーション。特定の投資成果を保証するものではありません。投資判断はご自身の責任で。</footer>
+</div>
+<script>
+const D={"new": [{"strat": "MA cross(20/50)", "dir": "long", "total": 167, "cagr": 12.3, "dd": -75.8, "r18": -44, "r22": -69}, {"strat": "MA cross(20/50)", "dir": "short", "total": -95, "cagr": -30.1, "dd": -98.4, "r18": 88, "r22": 69}, {"strat": "Donchian(20/10)", "dir": "long", "total": 1336, "cagr": 37.0, "dd": -70.4, "r18": -27, "r22": -57}, {"strat": "Donchian(20/10)", "dir": "short", "total": -97, "cagr": -32.9, "dd": -100.0, "r18": 67, "r22": 110}, {"strat": "Bollinger逆張り(20,2σ)", "dir": "long", "total": -83, "cagr": -18.7, "dd": -84.8, "r18": -58, "r22": -69}, {"strat": "Bollinger逆張り(20,2σ)", "dir": "short", "total": -99, "cagr": -41.2, "dd": -100.0, "r18": 16, "r22": 114}], "ref": [{"strat": "モメンタム(順張り)", "dir": "long", "total": 4375, "cagr": 60.0, "dd": -65, "r18": 0, "r22": -33, "ref": true}, {"strat": "買い持ち(等分)", "dir": "long", "total": 648, "cagr": 28.3, "dd": -85, "r18": -61, "r22": -75, "ref": true}, {"strat": "パワーゾーン(逆張り)", "dir": "long", "total": 180, "cagr": 12.6, "dd": -41, "r18": null, "r22": null, "ref": true}], "years": 8.5, "n": 19};
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+// バーチャート: 新規6 + モメンタム(参考)
+const bars=D.new.map(r=>({label:r.strat+" "+(r.dir==="long"?"ロング":"ショート"),cagr:r.cagr,dir:r.dir}))
+  .concat([{label:"(参考)モメンタム ロング",cagr:60.0,dir:"long"}]);
+(function(){
+  const W=880,rowH=34,mT=10,mB=24,mL=210,mR=20,H=mT+mB+bars.length*rowH;
+  const vals=bars.map(b=>b.cagr); let lo=Math.min(...vals,0),hi=Math.max(...vals,0);
+  lo=Math.floor(lo/10)*10; hi=Math.ceil(hi/10)*10;
+  const x=v=>mL+(v-lo)/(hi-lo)*(W-mL-mR);
+  let g="";
+  // grid + axis
+  for(let v=lo;v<=hi+1;v+=10){g+=`<line class="${v===0?'zero':''}" ${v===0?'':'stroke="'+css('--grid')+'" stroke-width="1"'} x1="${x(v)}" x2="${x(v)}" y1="${mT}" y2="${H-mB}"/>`;
+    g+=`<text class="axt" x="${x(v)}" y="${H-mB+16}" text-anchor="middle">${v}%</text>`;}
+  bars.forEach((b,i)=>{const y=mT+i*rowH+5,h=rowH-12;const c=b.dir==="long"?css('--long'):css('--short');
+    const x0=x(0),xv=x(b.cagr);const bx=Math.min(x0,xv),bw=Math.abs(xv-x0);
+    g+=`<rect x="${bx.toFixed(1)}" y="${y}" width="${Math.max(1,bw).toFixed(1)}" height="${h}" rx="3" fill="${c}"/>`;
+    g+=`<text class="bl" x="${mL-8}" y="${y+h/2+4}" text-anchor="end">${b.label}</text>`;
+    g+=`<text class="bv" x="${(b.cagr>=0?xv+5:xv-5).toFixed(1)}" y="${y+h/2+4}" text-anchor="${b.cagr>=0?'start':'end'}" fill="${c}">${b.cagr>=0?'+':''}${b.cagr}%</text>`;});
+  const svg=document.getElementById("bars");svg.setAttribute("viewBox",`0 0 ${W} ${H}`);svg.innerHTML=g;
+})();
+// table
+const fmt=v=>v==null?"—":(v>=0?"+":"")+v+"%";
+document.querySelector("#tbl tbody").innerHTML=D.new.map(r=>{
+  const tc=r.total>=0?"pos":"neg";
+  return `<tr><td>${r.strat}</td><td><span class="pill ${r.dir==='long'?'l':'s'}">${r.dir==='long'?'ロング':'ショート'}</span></td>`+
+    `<td class="${tc}">${r.total>=0?'+':''}${r.total.toLocaleString()}%</td><td class="${r.cagr>=0?'pos':'neg'}">${fmt(r.cagr)}</td>`+
+    `<td class="neg">${r.dd}%</td><td class="${(r.r18||0)>=0?'pos':'neg'}">${fmt(r.r18)}</td><td class="${(r.r22||0)>=0?'pos':'neg'}">${fmt(r.r22)}</td></tr>`;}).join("");
+</script>
+</body></html>

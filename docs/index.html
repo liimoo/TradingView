@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>暗号資産モメンタム戦略レポート</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --ink:#1a1a1a; --muted:#6b7280;
+    --line:#e4e6eb; --accent:#0a6ed1; --accent-ink:#fff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#14161a; --card:#1e2127; --ink:#e8eaed; --muted:#9aa0aa;
+           --line:#2c3038; --accent:#4f9dee; }
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;
+       margin:0;background:var(--bg);color:var(--ink);line-height:1.6}
+  .wrap{max-width:720px;margin:0 auto;padding:1.6rem 1.1rem 3rem}
+  header{padding:.4rem 0 1rem}
+  h1{font-size:1.5rem;margin:.2rem 0}
+  .sub{color:var(--muted);font-size:.95rem;margin:.2rem 0 0}
+  .grid{display:grid;gap:.8rem;margin-top:1.2rem}
+  a.card{display:block;background:var(--card);border:1px solid var(--line);
+         border-radius:14px;padding:1rem 1.1rem;text-decoration:none;color:inherit;
+         transition:transform .08s ease, border-color .12s ease}
+  a.card:hover{transform:translateY(-1px);border-color:var(--accent)}
+  .card .t{font-weight:700;font-size:1.05rem}
+  .card .d{color:var(--muted);font-size:.9rem;margin-top:.15rem}
+  .emoji{font-size:1.15rem;margin-right:.4rem}
+  .note{margin-top:1.6rem;padding:.9rem 1rem;background:var(--card);
+        border:1px solid var(--line);border-radius:12px;color:var(--muted);font-size:.85rem}
+  footer{margin-top:2rem;color:var(--muted);font-size:.8rem;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📊 暗号資産モメンタム戦略レポート</h1>
+    <p class="sub">日足の順張り（モメンタム）＋地合いフィルターで運用中。以下は戦略の解説と検証結果です。<br>
+    ※これらのページに口座残高や損益などの個人情報は含みません（公開しても安全な資料のみ）。</p>
+  </header>
+
+  <div class="grid">
+    <a class="card" href="playbook.html">
+      <div class="t"><span class="emoji">📋</span>運用戦略まとめ</div>
+      <div class="d">今の本番運用（モメンタム＋地合いフィルター）のルールを一枚で。まずはここから。</div>
+    </a>
+    <a class="card" href="momentum.html">
+      <div class="t"><span class="emoji">🔀</span>モメンタム移行の報告</div>
+      <div class="d">逆張り（パワーゾーン）から順張り（モメンタム）へ切り替えた理由と検証まとめ。</div>
+    </a>
+    <a class="card" href="backtest.html">
+      <div class="t"><span class="emoji">📊</span>戦略バックテスト</div>
+      <div class="d">パワーゾーン／モメンタム／買い持ちの比較（日本株82銘柄）。</div>
+    </a>
+    <a class="card" href="simulation.html">
+      <div class="t"><span class="emoji">🧮</span>開始時期別シミュレーション</div>
+      <div class="d">各開始時期から運用した場合の資産推移シミュレーション。</div>
+    </a>
+    <a class="card" href="strategies.html">
+      <div class="t"><span class="emoji">🔬</span>戦略ラボ（ロング／ショート比較）</div>
+      <div class="d">移動平均クロス・ドンチャン・ボリンジャーの多空バックテスト比較。</div>
+    </a>
+  </div>
+
+  <div class="note">
+    自動売買（暗号資産bitbank）と株の月次ランキングは、毎朝 GitHub Actions が1回だけ自動実行し、
+    結果は Discord に通知されます（このサイトはサーバ不要・無料で公開しています）。
+    損益などの口座情報は Discord（非公開）でのみ確認できます。
+  </div>
+
+  <footer>自動更新 / GitHub Pages で公開</footer>
+</div>
+</body>
+</html>
