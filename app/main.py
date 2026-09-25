@@ -166,46 +166,31 @@ async def positions_endpoint(secret: str = "", format: str = "html"):
 
 
 @app.get("/snapshot")
-async def snapshot_endpoint(secret: str = "", format: str = "json"):
-    """PDCA用の日次スナップショット（1回で全体像）。資産・建玉の円評価・地合い・ベンチマークを返す。
+async def snapshot_endpoint(secret: str = "", format: str = "json", public: int = 0):
+    """PDCA用の日次スナップショット（1回で全体像）。地合い・ベンチマーク・建玉・資産の円評価を返す。
 
-    ・equity_total_jpy … 口座全体の総資産(隔離ADA・現金含む)
-    ・book_value_jpy   … モメンタムbookの評価額(=botが運用中の暗号資産の時価)
-    ・cash_jpy         … 使える現金
-    ・ada_value_jpy    … 隔離中ADAの時価(botは触らない・参考)
-    ・regime           … 等ウェイト指数と200日線・乖離%・リスクオン判定(botの実データ源=Binance基準)
-    ・btc_jpy          … ベンチマーク用のBTC価格
-    毎日これを外部(GitHub Actions等)から取得して1行ずつ貯めれば、エクイティカーブが作れる。
+    ・public=1（合言葉不要）… 機微情報(¥残高)を除いた戦略評価用の項目だけ返す。
+      日次ログをGitHub Actions等から秘密情報なしで取得するための公開モード。
+      返す: 地合い(指数/200日線/乖離%/リスクオン/上位候補)・BTCベンチ・保有銘柄・建玉数。
+    ・合言葉あり … 上記に加え equity_total_jpy(総資産)/cash_jpy(現金)/book_value_jpy(book時価)/
+      ada_value_jpy(隔離ADA時価)/建玉の円評価 も返す（本人用）。
     """
-    if not verify_secret(secret, settings.webhook_secret):
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
     from . import momentum_live
     from .indicators import sma
 
+    if not public and not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
     pos = await asyncio.to_thread(build_positions)
     positions = pos.get("positions") or []
-    book_value = sum((p["price"] * p["base"]) for p in positions
-                     if p.get("price") and p.get("base"))
 
-    total = free = None
-    ada_qty = ada_val = None
+    # 地合い（botの実データ源=Binance基準）とBTCベンチマーク
     btc = None
     if broker.has_exchange:
-        try:
-            total, free = await asyncio.to_thread(broker.portfolio)
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            ada_qty = float((pos.get("balance") or {}).get("ADA") or 0)
-            if ada_qty > 0:
-                ada_val = ada_qty * await asyncio.to_thread(broker.ticker, "ADA/JPY")
-        except Exception:  # noqa: BLE001
-            pass
         try:
             btc = await asyncio.to_thread(broker.ticker, "BTC/JPY")
         except Exception:  # noqa: BLE001
             pass
-
     regime: dict = {}
     try:
         data = await momentum_live._gather()
@@ -223,23 +208,48 @@ async def snapshot_endpoint(secret: str = "", format: str = "json"):
     except Exception:  # noqa: BLE001
         regime = {"error": "regime計算に失敗（データ取得不可の可能性）"}
 
-    out = {
+    # 機微情報を含まない共通部分（公開モードはここまで）
+    sanitized = {
         "generated": pos.get("generated"),
-        "mode": settings.trading_mode,
         "strategy": settings.strategy,
         "killed": risk_manager.is_killed(),
+        "regime": regime,
+        "btc_jpy": btc,
+        "held": [p["symbol"] for p in positions],
+        "n_positions": len(positions),
+        "crypto_mom_top": settings.crypto_mom_top,
+    }
+    if public:
+        return JSONResponse(sanitized)
+
+    # 本人用：¥残高・建玉の円評価を追加
+    book_value = sum((p["price"] * p["base"]) for p in positions
+                     if p.get("price") and p.get("base"))
+    total = free = None
+    ada_qty = ada_val = None
+    if broker.has_exchange:
+        try:
+            total, free = await asyncio.to_thread(broker.portfolio)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            ada_qty = float((pos.get("balance") or {}).get("ADA") or 0)
+            if ada_qty > 0:
+                ada_val = ada_qty * await asyncio.to_thread(broker.ticker, "ADA/JPY")
+        except Exception:  # noqa: BLE001
+            pass
+
+    out = {
+        **sanitized,
+        "mode": settings.trading_mode,
         "equity_total_jpy": total,
         "cash_jpy": free,
         "book_value_jpy": round(book_value, 2),
         "ada_qty": ada_qty,
         "ada_value_jpy": round(ada_val, 2) if ada_val is not None else None,
         "day_pnl": round(risk_manager.day_pnl, 2),
-        "held": [p["symbol"] for p in positions],
         "positions": positions,
-        "regime": regime,
-        "btc_jpy": btc,
         "order_quote_amount": settings.order_quote_amount,
-        "crypto_mom_top": settings.crypto_mom_top,
     }
     return JSONResponse(out)
 

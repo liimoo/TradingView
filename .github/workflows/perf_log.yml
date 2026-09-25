@@ -1,0 +1,41 @@
+name: 日次パフォーマンス記録（PDCA）
+
+# Renderの公開スナップショット(/snapshot?public=1・合言葉不要・機微情報なし)を毎日取得し、
+# data/perf_log.csv に1行追記してcommitする。地合い・ベンチマーク・保有銘柄の時系列を貯め、
+# 月次PDCAレビューの土台にする。※秘密情報は一切使わない。実売買もしない（読むだけ）。
+
+on:
+  schedule:
+    - cron: "30 0 * * *"   # 00:30 UTC = 09:30 JST（朝の評価後の状態を記録）
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: perf-log
+  cancel-in-progress: false
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: スナップショット取得＋追記
+        run: python scripts/perf_log.py
+      - name: 変更をcommit
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/perf_log.csv || true
+          if git diff --cached --quiet; then
+            echo "変更なし（記録スキップ or 同日重複）"
+          else
+            git commit -m "chore: 日次パフォーマンス記録 [skip ci]"
+            git push
+          fi
