@@ -20,7 +20,7 @@ services:
         # モメンタム対象。ADA/JPYは除外＝入金した保有ADAをbotに取り込ませない/売買させないため(隔離)。
         value: BTC/JPY,ETH/JPY,DOGE/JPY,LTC/JPY,ATOM/JPY,DOT/JPY,SOL/JPY,AVAX/JPY,BCH/JPY,BNB/JPY,TRX/JPY,XLM/JPY,SUI/JPY,QTUM/JPY,MKR/JPY,SAND/JPY,BAT/JPY,MANA/JPY,LPT/JPY
       - key: ORDER_QUOTE_AMOUNT
-        value: "9000" # 1発注=固定¥9,000。総資産(入金ADAで膨張)に釣られないよう固定額運用に切替
+        value: "100000" # 1発注=固定¥100,000（上位5銘柄で最大約¥50万を運用）。ADA半分売却で空いた資金を投入するため9,000→100,000へ増額。固定額なのでADA残(総資産)には釣られない
       - key: ORDER_SIZE_PCT
         value: "0" # 0=固定額(ORDER_QUOTE_AMOUNT)を使う。ADA隔離のため%運用は停止(総資産連動を避ける)
       - key: MIN_ORDER_JPY
