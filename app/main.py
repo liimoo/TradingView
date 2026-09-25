@@ -153,21 +153,13 @@ async def positions_endpoint(secret: str = "", format: str = "html"):
     if not verify_secret(secret, settings.webhook_secret):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
     if format == "json":
-        out = {
-            "tracked": {
-                s: {"side": p.side, "base": p.base_qty, "entry": p.entry_price}
-                for s, p in risk_manager._positions.items()
-            }
-        }
+        # positions[] に現在値(price)・評価額算出用のbase・含み損益(upnl)を含む＝パネルの円換算表示用
+        out = await asyncio.to_thread(build_positions)
         if broker.has_exchange:
             try:
                 out["bitbank_margin"] = await asyncio.to_thread(broker.margin_positions)
             except Exception as exc:  # noqa: BLE001
                 out["bitbank_margin_error"] = str(exc)
-            try:
-                out["margin_status"] = await asyncio.to_thread(broker.margin_status)
-            except Exception as exc:  # noqa: BLE001
-                out["margin_status_error"] = str(exc)
         return JSONResponse(out)
     data = await asyncio.to_thread(build_positions)
     return HTMLResponse(render_positions_html(data))
@@ -488,6 +480,10 @@ button{font-size:1rem;padding:.7rem 1rem;border-radius:8px;border:0;color:#fff;c
 .red{background:#d33}.orange{background:#e08600}.green{background:#0a8f3c}.gray{background:#666}
 a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-space:pre-wrap;word-break:break-all}
 .muted{color:#888;font-size:.85rem}
+table.pos-tbl{border-collapse:collapse;width:100%;margin-top:.5rem;font-size:.85rem}
+table.pos-tbl th,table.pos-tbl td{padding:.35rem .4rem;text-align:right;border-bottom:1px solid #eee}
+table.pos-tbl th.l,table.pos-tbl td.l{text-align:left}table.pos-tbl th{color:#666;font-weight:600}
+.pos{color:#0a8f3c;font-weight:bold}.neg{color:#d33;font-weight:bold}
 </style></head><body>
 <h1>🎛️ 操作パネル</h1>
 <div class='card' id='status'>読み込み中...</div>
@@ -518,10 +514,30 @@ a{color:#0a6ed1}.mono{font-family:ui-monospace,monospace;font-size:.85rem;white-
 <script>
 const S="__S__";
 function log(m){document.getElementById('log').textContent=(new Date().toLocaleTimeString())+" "+m+"\\n"+document.getElementById('log').textContent;}
+function yen(v){return "¥"+Math.round(v).toLocaleString('ja-JP');}
 async function refresh(){
-  try{const r=await fetch('/health');const d=await r.json();
-    let pos=Object.entries(d.positions||{}).map(([k,v])=>k+": "+v.side+" "+v.base+" @"+v.entry).join("\\n")||"（建玉なし）";
-    document.getElementById('status').innerHTML="<b>状態: "+d.mode+"</b>　本日損益: ¥"+d.day_pnl+(d.killed?" 　<b style='color:#d33'>停止中</b>":"")+"<br><div class='mono'>"+pos+"</div>";
+  try{
+    const [d,pj]=await Promise.all([
+      fetch('/health').then(r=>r.json()),
+      fetch('/positions?format=json&secret='+encodeURIComponent(S)).then(r=>r.json())
+    ]);
+    const poss=pj.positions||[];
+    let totVal=0,totUp=0,hasUp=false,rows='';
+    for(const p of poss){
+      const val=(p.price&&p.base)?p.price*p.base:null;
+      if(val!=null)totVal+=val;
+      let up='-';
+      if(p.upnl!=null){totUp+=p.upnl;hasUp=true;
+        const cls=p.upnl>=0?'pos':'neg';
+        up="<span class='"+cls+"'>"+yen(p.upnl)+" ("+(p.upnl_pct>=0?'+':'')+p.upnl_pct.toFixed(1)+"%)</span>";}
+      rows+="<tr><td class='l'>"+p.symbol+"</td><td>"+(val!=null?yen(val):'-')+"</td><td>"+up+"</td></tr>";
+    }
+    if(!poss.length)rows="<tr><td class='l muted' colspan='3'>（建玉なし）</td></tr>";
+    const upCls=totUp>=0?'pos':'neg';
+    document.getElementById('status').innerHTML=
+      "<b>状態: "+d.mode+"</b>"+(d.killed?" <b style='color:#d33'>停止中</b>":"")+"　本日損益: ¥"+d.day_pnl+
+      "<table class='pos-tbl'><tr><th class='l'>銘柄</th><th>評価額</th><th>含み損益</th></tr>"+rows+
+      "<tr><td class='l'><b>合計</b></td><td><b>"+yen(totVal)+"</b></td><td>"+(hasUp?"<b class='"+upCls+"'>"+yen(totUp)+"</b>":"-")+"</td></tr></table>";
   }catch(e){document.getElementById('status').textContent="取得失敗: "+e;}
 }
 async function flatten(){

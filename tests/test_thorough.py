@@ -299,7 +299,9 @@ def test_tax_html_has_disclaimer():
 def test_positions_json_shape():
     r = client.get(f"/positions?secret={SECRET}&format=json")
     assert r.status_code == 200
-    assert "tracked" in r.json()
+    # 円換算表示のため build_positions を返す：positions[]（現在値price・含み損益upnl込み）を含む
+    body = r.json()
+    assert "positions" in body and isinstance(body["positions"], list)
 
 
 def test_health_reports_margin_lists():
