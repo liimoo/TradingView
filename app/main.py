@@ -165,6 +165,85 @@ async def positions_endpoint(secret: str = "", format: str = "html"):
     return HTMLResponse(render_positions_html(data))
 
 
+@app.get("/snapshot")
+async def snapshot_endpoint(secret: str = "", format: str = "json"):
+    """PDCA用の日次スナップショット（1回で全体像）。資産・建玉の円評価・地合い・ベンチマークを返す。
+
+    ・equity_total_jpy … 口座全体の総資産(隔離ADA・現金含む)
+    ・book_value_jpy   … モメンタムbookの評価額(=botが運用中の暗号資産の時価)
+    ・cash_jpy         … 使える現金
+    ・ada_value_jpy    … 隔離中ADAの時価(botは触らない・参考)
+    ・regime           … 等ウェイト指数と200日線・乖離%・リスクオン判定(botの実データ源=Binance基準)
+    ・btc_jpy          … ベンチマーク用のBTC価格
+    毎日これを外部(GitHub Actions等)から取得して1行ずつ貯めれば、エクイティカーブが作れる。
+    """
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    from . import momentum_live
+    from .indicators import sma
+
+    pos = await asyncio.to_thread(build_positions)
+    positions = pos.get("positions") or []
+    book_value = sum((p["price"] * p["base"]) for p in positions
+                     if p.get("price") and p.get("base"))
+
+    total = free = None
+    ada_qty = ada_val = None
+    btc = None
+    if broker.has_exchange:
+        try:
+            total, free = await asyncio.to_thread(broker.portfolio)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            ada_qty = float((pos.get("balance") or {}).get("ADA") or 0)
+            if ada_qty > 0:
+                ada_val = ada_qty * await asyncio.to_thread(broker.ticker, "ADA/JPY")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            btc = await asyncio.to_thread(broker.ticker, "BTC/JPY")
+        except Exception:  # noqa: BLE001
+            pass
+
+    regime: dict = {}
+    try:
+        data = await momentum_live._gather()
+        if data:
+            idx = momentum_live.market_index(data)
+            sm = sma(idx, settings.pz_sma_len)
+            up = momentum_live.regime_is_up(data, settings.pz_sma_len)
+            last_sma = sm[-1] if sm else None
+            dist = ((idx[-1] / last_sma - 1) * 100) if (idx and last_sma) else None
+            regime = {"up": up, "index": idx[-1] if idx else None,
+                      "sma200": last_sma, "distance_pct": dist,
+                      "targets": momentum_live.momentum_targets(
+                          data, settings.crypto_mom_top,
+                          settings.crypto_mom_lookback, settings.pz_sma_len)}
+    except Exception:  # noqa: BLE001
+        regime = {"error": "regime計算に失敗（データ取得不可の可能性）"}
+
+    out = {
+        "generated": pos.get("generated"),
+        "mode": settings.trading_mode,
+        "strategy": settings.strategy,
+        "killed": risk_manager.is_killed(),
+        "equity_total_jpy": total,
+        "cash_jpy": free,
+        "book_value_jpy": round(book_value, 2),
+        "ada_qty": ada_qty,
+        "ada_value_jpy": round(ada_val, 2) if ada_val is not None else None,
+        "day_pnl": round(risk_manager.day_pnl, 2),
+        "held": [p["symbol"] for p in positions],
+        "positions": positions,
+        "regime": regime,
+        "btc_jpy": btc,
+        "order_quote_amount": settings.order_quote_amount,
+        "crypto_mom_top": settings.crypto_mom_top,
+    }
+    return JSONResponse(out)
+
+
 @app.get("/powerzones")
 async def powerzones_status(secret: str = "", format: str = "html"):
     """パワーゾーン戦略の現在シグナル状況（発注しない・チャートの代替）。"""
