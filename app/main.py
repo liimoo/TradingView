@@ -254,22 +254,19 @@ async def snapshot_endpoint(secret: str = "", format: str = "json", public: int 
     return JSONResponse(out)
 
 
-@app.get("/equity")
-async def equity_page(secret: str = ""):
-    """資産推移(NAV指数)。約定履歴＋bitbank公開日足から戦略NAVを再構築しBTC買い持ちと比較（要合言葉）。
+_RAW_PERFLOG = "https://raw.githubusercontent.com/liimoo/TradingView/main/data/perf_log.csv"
 
-    NAVは保有銘柄の等ウェイト日次リターンの連鎖＝入出金/発注額変更の影響を受けない戦略の伸び。
-    純資産額(円)は表示しない。過去は本ルートで再構築、今後は perf_log.csv が同じ指標を継ぎ足す。
-    """
-    if not verify_secret(secret, settings.webhook_secret):
-        return HTMLResponse("<h3>unauthorized（URLに ?secret=... が必要です）</h3>", status_code=401)
+
+def _bitbank_pair(sym: str) -> str:
+    base = sym.split("/")[0].upper()
+    return ("bcc" if base == "BCH" else base.lower()) + "_jpy"
+
+
+async def _reconstruct_equity_rows() -> list[dict]:
+    """約定履歴＋bitbank公開日足からNAVを再構築し、非機微の日次行を返す（過去シード用・重い）。"""
     import httpx
     from datetime import datetime
     from . import equity as eq
-
-    def _pair(sym: str) -> str:
-        base = sym.split("/")[0].upper()
-        return ("bcc" if base == "BCH" else base.lower()) + "_jpy"
 
     now = datetime.now(eq.JST)
     years = [now.year - 1, now.year]
@@ -279,7 +276,7 @@ async def equity_page(secret: str = ""):
         out: dict[str, float] = {}
         for yr in years:
             try:
-                r = await client.get(f"https://public.bitbank.cc/{_pair(sym)}/candlestick/1day/{yr}")
+                r = await client.get(f"https://public.bitbank.cc/{_bitbank_pair(sym)}/candlestick/1day/{yr}")
                 for row in r.json()["data"]["candlestick"][0]["ohlcv"]:
                     out[eq.ts_to_date(int(row[5]))] = float(row[3])
             except Exception:  # noqa: BLE001
@@ -308,16 +305,70 @@ async def equity_page(secret: str = ""):
     today = now.strftime("%Y-%m-%d")
     btc_dates = sorted((closes.get("BTC/JPY") or {}).keys())
     calendar = [d for d in btc_dates if (first_date is None or d >= first_date) and d <= today]
-
-    gen = now.strftime("%Y-%m-%d %H:%M JST")
     if not calendar or not first_date:
-        note = ("約定履歴が取得できません（DRY_RUN/鍵未設定など）。" if not broker.has_exchange
-                else "まだ約定がありません。")
-        data = {"dates": [], "nav": [], "btc_index": [], "held_latest": []}
-    else:
-        note = "※NAVは入出金・発注額変更の影響を受けない戦略リターン（純資産額は非表示）。"
-        data = eq.build_curve(trades_by_symbol, closes, calendar)
-    return HTMLResponse(eq.render_equity_html(data, generated=gen, note=note))
+        return []
+    curve = eq.build_curve(trades_by_symbol, closes, calendar)
+    btc_closes = closes.get("BTC/JPY") or {}
+    rows = []
+    for p in curve["nav"]:
+        d = p["date"]
+        bc = btc_closes.get(d)
+        rows.append({"date": d, "regime_up": "", "regime_distance_pct": "", "index": "",
+                     "btc_jpy": round(bc) if bc else "", "n_positions": len(p.get("held") or []),
+                     "held": "|".join(p.get("held") or []), "targets": "",
+                     "nav": p["nav"], "book_ret_pct": p.get("ret_pct", "")})
+    return rows
+
+
+@app.get("/equity/backfill")
+async def equity_backfill(secret: str = "", public: int = 0):
+    """過去NAVの再構築結果を返す（perf_log.csvの過去分シード用）。非機微＝public=1可・重い。"""
+    if not public and not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    rows = await _reconstruct_equity_rows()
+    return JSONResponse({"rows": rows})
+
+
+@app.get("/equity")
+async def equity_page(secret: str = ""):
+    """資産推移(NAV指数)。perf_log.csv(GitHub raw)を読むだけ＝軽量。要合言葉。
+
+    重い再計算はしない（過去シードは /equity/backfill、今後は日次ジョブが追記）。
+    """
+    if not verify_secret(secret, settings.webhook_secret):
+        return HTMLResponse("<h3>unauthorized（URLに ?secret=... が必要です）</h3>", status_code=401)
+    import csv as _csv
+    import io
+    import httpx
+    from datetime import datetime
+    from . import equity as eq
+
+    text = None
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(_RAW_PERFLOG)
+            if r.status_code == 200:
+                text = r.text
+    except Exception:  # noqa: BLE001
+        text = None
+    if text is None:  # フォールバック：デプロイ済みローカルCSV
+        try:
+            text = (Path(__file__).resolve().parent.parent / "data" / "perf_log.csv").read_text(encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            text = ""
+
+    rows = [r for r in _csv.DictReader(io.StringIO(text)) if r.get("nav")] if text else []
+    dates = [r["date"] for r in rows]
+    nav = [{"nav": float(r["nav"]),
+            "held": (r.get("held") or "").split("|") if r.get("held") else []} for r in rows]
+    btc_closes = {r["date"]: float(r["btc_jpy"]) for r in rows if r.get("btc_jpy")}
+    data = {"dates": dates, "nav": nav,
+            "btc_index": eq.normalize_index(dates, btc_closes),
+            "held_latest": nav[-1]["held"] if nav else []}
+    gen = datetime.now(eq.JST).strftime("%Y-%m-%d %H:%M JST")
+    return HTMLResponse(eq.render_equity_html(
+        data, generated=gen,
+        note="perf_log.csv を表示（軽量）。過去はバックフィル、今後は日次で自動追記。"))
 
 
 @app.get("/powerzones")

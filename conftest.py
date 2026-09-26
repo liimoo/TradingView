@@ -28,3 +28,17 @@ _TEST_ENV = {
 }
 for _k, _v in _TEST_ENV.items():
     os.environ.setdefault(_k, _v)
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _clear_report_cache():
+    """レポート/建玉の短時間キャッシュをテストごとにクリア（状態変更が即反映されるように）。"""
+    try:
+        from app import report
+        report._CACHE.clear()
+    except Exception:  # noqa: BLE001
+        pass
+    yield

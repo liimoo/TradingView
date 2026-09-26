@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 from . import journal
@@ -12,6 +13,21 @@ from .config import settings
 logger = logging.getLogger("report")
 
 JST = timezone(timedelta(hours=9))
+
+# 取引所への問い合わせは重い（銘柄ごとにmy_trades/ticker）。短時間キャッシュで
+# 連続アクセス（レポート再読込・パネルの15秒ポーリング）を軽くする。再デプロイで消える。
+_CACHE: dict = {}
+
+
+def _cache_get(key, ttl: float):
+    e = _CACHE.get(key)
+    if e and (time.time() - e[0]) < ttl:
+        return e[1]
+    return None
+
+
+def _cache_put(key, val):
+    _CACHE[key] = (time.time(), val)
 
 
 def _fmt_ts(ms_or_s: float, is_ms: bool) -> str:
@@ -23,6 +39,16 @@ def _fmt_ts(ms_or_s: float, is_ms: bool) -> str:
 
 
 def build_positions() -> dict:
+    """現在の建玉・含み損益・証拠金・残高（30秒キャッシュ）。"""
+    c = _cache_get("positions", 30)
+    if c is not None:
+        return c
+    v = _build_positions()
+    _cache_put("positions", v)
+    return v
+
+
+def _build_positions() -> dict:
     """現在の建玉・含み損益・証拠金・残高をまとめる。"""
     from .risk import risk_manager
 
@@ -218,6 +244,17 @@ def _rt_is_mom(reason) -> bool:
 
 
 def build_report(strategy: str | None = None) -> dict:
+    """取引所の約定履歴から銘柄ごとの集計を作る（120秒キャッシュ）。"""
+    key = ("report", strategy)
+    c = _cache_get(key, 120)
+    if c is not None:
+        return c
+    v = _build_report(strategy)
+    _cache_put(key, v)
+    return v
+
+
+def _build_report(strategy: str | None = None) -> dict:
     """取引所の約定履歴から銘柄ごとの集計を作る。
 
     strategy を指定すると、往復トレード台帳をその戦略の売買だけに絞る
