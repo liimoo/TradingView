@@ -320,13 +320,41 @@ async def _reconstruct_equity_rows() -> list[dict]:
     return rows
 
 
+_BACKFILL: dict = {"rows": None, "computing": False, "at": 0.0, "error": None}
+
+
+async def _run_backfill() -> None:
+    """過去NAVの再構築を裏で実行し、結果をメモリにキャッシュする（HTTPを重くしないため）。"""
+    import time as _t
+    try:
+        rows = await _reconstruct_equity_rows()
+        _BACKFILL.update(rows=rows, at=_t.time(), error=None)
+        logger.info("バックフィル計算完了: %d日分", len(rows))
+    except Exception as exc:  # noqa: BLE001
+        _BACKFILL.update(at=_t.time(), error=str(exc))
+        logger.exception("バックフィル計算でエラー")
+    finally:
+        _BACKFILL["computing"] = False
+
+
 @app.get("/equity/backfill")
-async def equity_backfill(secret: str = "", public: int = 0):
-    """過去NAVの再構築結果を返す（perf_log.csvの過去分シード用）。非機微＝public=1可・重い。"""
+async def equity_backfill(secret: str = "", public: int = 0, refresh: int = 0):
+    """過去NAVの再構築結果（perf_log.csvの過去分シード用・非機微＝public=1可）。
+
+    重い再構築は裏で実行。呼び出しは即応（status=computing/ready）。呼ぶ側は ready まで数回ポーリングする。
+    """
     if not public and not verify_secret(secret, settings.webhook_secret):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
-    rows = await _reconstruct_equity_rows()
-    return JSONResponse({"rows": rows})
+    import time as _t
+    ready = (_BACKFILL["rows"] is not None
+             and (_t.time() - _BACKFILL["at"] < 86400) and not refresh)
+    if ready:
+        return JSONResponse({"status": "ready", "rows": _BACKFILL["rows"]})
+    if not _BACKFILL["computing"]:
+        _BACKFILL["computing"] = True
+        _BACKFILL["error"] = None
+        asyncio.create_task(_run_backfill())
+    return JSONResponse({"status": "computing", "last_error": _BACKFILL.get("error")})
 
 
 @app.get("/equity")

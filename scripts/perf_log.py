@@ -19,6 +19,7 @@ import csv
 import json
 import os
 import sys
+import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -84,6 +85,27 @@ def _book_return(held: list[str]) -> float | None:
     return sum(rets) / len(rets)
 
 
+def _poll_backfill(max_tries: int = 12, wait: int = 20) -> list:
+    """バックフィルを ready までポーリング（各HTTPは軽い）。最大 max_tries×wait 秒待つ。"""
+    for i in range(max_tries):
+        try:
+            d = _fetch_json(BACKFILL_URL, tries=1, timeout=30)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[perf_log] バックフィル問い合わせ失敗({i + 1}/{max_tries}): {exc}", file=sys.stderr)
+            time.sleep(wait)
+            continue
+        status = d.get("status")
+        if status == "ready":
+            return d.get("rows") or []
+        # computing（or 想定外）→ 待って再試行
+        if d.get("last_error"):
+            print(f"[perf_log] サーバ側バックフィルでエラー: {d['last_error']}", file=sys.stderr)
+        print(f"[perf_log] バックフィル計算中… 待機({i + 1}/{max_tries})", file=sys.stderr)
+        time.sleep(wait)
+    print("[perf_log] バックフィルが時間内に完了せず（過去なしで開始）", file=sys.stderr)
+    return []
+
+
 def _num(v, nd: int):
     return round(v, nd) if isinstance(v, (int, float)) else ""
 
@@ -117,16 +139,13 @@ def main() -> int:
     held = d.get("held") or []
 
     rows = _read_rows()
-    # 履歴がまだ薄い間（初回や、今日分しか無い状態）は過去NAVをサーバから取り込む。
-    # 再構築は19銘柄ぶん順次取得で重いので、読み取りは長めに待つ。以後(履歴が入れば)追記のみ。
+    # 履歴がまだ薄い間（初回や今日分しか無い状態）は過去NAVをサーバから取り込む。
+    # 再構築は重いのでサーバは裏で計算→こちらは ready までポーリング（HTTPは毎回軽い）。
     if len(rows) < 3:
-        try:
-            bf = _fetch_json(BACKFILL_URL, tries=3, timeout=180).get("rows") or []
-            if bf:
-                rows = bf  # 過去(8月〜)からの連続NAVで置き換え。今日分は下で再計算・上書き
-                print(f"[perf_log] 過去バックフィルを取り込み: {len(bf)}日分")
-        except Exception as exc:  # noqa: BLE001
-            print(f"[perf_log] バックフィル取得失敗（過去なしで開始）: {exc}", file=sys.stderr)
+        bf = _poll_backfill()
+        if bf:
+            rows = bf  # 過去(8月〜)からの連続NAVで置き換え。今日分は下で再計算・上書き
+            print(f"[perf_log] 過去バックフィルを取り込み: {len(bf)}日分")
     prev_nav = _prev_nav(rows, today)
     ret = _book_return(held)  # None=価格取得全滅
     nav = prev_nav * (1 + ret) if ret is not None else prev_nav
