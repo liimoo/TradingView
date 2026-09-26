@@ -34,12 +34,12 @@ COLUMNS = ["date", "regime_up", "regime_distance_pct", "index", "btc_jpy",
 NAV_START = 100.0
 
 
-def _fetch_json(url: str, tries: int = 3):
+def _fetch_json(url: str, tries: int = 3, timeout: int = 30):
     last = None
     for i in range(tries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "perf-log/1.0"})
-            with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 (自分のサーバ/公開API)
+            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 (自分のサーバ/公開API)
                 return json.loads(r.read().decode("utf-8"))
         except Exception as exc:  # noqa: BLE001
             last = exc
@@ -107,7 +107,7 @@ def _prev_nav(rows: list[dict], today: str) -> float:
 
 def main() -> int:
     try:
-        d = _fetch_json(URL)
+        d = _fetch_json(URL, tries=3, timeout=60)
     except Exception:  # noqa: BLE001
         print("[perf_log] スナップショット取得に失敗。今日は記録をスキップします。")
         return 0  # ワークフローは失敗扱いにしない（翌日再試行）
@@ -117,11 +117,13 @@ def main() -> int:
     held = d.get("held") or []
 
     rows = _read_rows()
-    if not rows:  # 初回：過去NAVをサーバから一度だけ取り込む（以後は追記のみ）
+    # 履歴がまだ薄い間（初回や、今日分しか無い状態）は過去NAVをサーバから取り込む。
+    # 再構築は19銘柄ぶん順次取得で重いので、読み取りは長めに待つ。以後(履歴が入れば)追記のみ。
+    if len(rows) < 3:
         try:
-            bf = _fetch_json(BACKFILL_URL, tries=2).get("rows") or []
+            bf = _fetch_json(BACKFILL_URL, tries=3, timeout=180).get("rows") or []
             if bf:
-                rows = bf
+                rows = bf  # 過去(8月〜)からの連続NAVで置き換え。今日分は下で再計算・上書き
                 print(f"[perf_log] 過去バックフィルを取り込み: {len(bf)}日分")
         except Exception as exc:  # noqa: BLE001
             print(f"[perf_log] バックフィル取得失敗（過去なしで開始）: {exc}", file=sys.stderr)
