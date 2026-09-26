@@ -254,6 +254,72 @@ async def snapshot_endpoint(secret: str = "", format: str = "json", public: int 
     return JSONResponse(out)
 
 
+@app.get("/equity")
+async def equity_page(secret: str = ""):
+    """資産推移(NAV指数)。約定履歴＋bitbank公開日足から戦略NAVを再構築しBTC買い持ちと比較（要合言葉）。
+
+    NAVは保有銘柄の等ウェイト日次リターンの連鎖＝入出金/発注額変更の影響を受けない戦略の伸び。
+    純資産額(円)は表示しない。過去は本ルートで再構築、今後は perf_log.csv が同じ指標を継ぎ足す。
+    """
+    if not verify_secret(secret, settings.webhook_secret):
+        return HTMLResponse("<h3>unauthorized（URLに ?secret=... が必要です）</h3>", status_code=401)
+    import httpx
+    from datetime import datetime
+    from . import equity as eq
+
+    def _pair(sym: str) -> str:
+        base = sym.split("/")[0].upper()
+        return ("bcc" if base == "BCH" else base.lower()) + "_jpy"
+
+    now = datetime.now(eq.JST)
+    years = [now.year - 1, now.year]
+    symbols = list(dict.fromkeys(list(settings.allowed_symbols) + ["BTC/JPY"]))
+
+    async def fetch_closes(client, sym):
+        out: dict[str, float] = {}
+        for yr in years:
+            try:
+                r = await client.get(f"https://public.bitbank.cc/{_pair(sym)}/candlestick/1day/{yr}")
+                for row in r.json()["data"]["candlestick"][0]["ohlcv"]:
+                    out[eq.ts_to_date(int(row[5]))] = float(row[3])
+            except Exception:  # noqa: BLE001
+                continue
+        return sym, out
+
+    async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "equity/1.0"}) as client:
+        results = await asyncio.gather(*[fetch_closes(client, s) for s in symbols])
+    closes = {sym: c for sym, c in results}
+
+    trades_by_symbol: dict = {}
+    first_date = None
+    if broker.has_exchange:
+        for sym in settings.allowed_symbols:
+            try:
+                ts = await asyncio.to_thread(broker.my_trades, sym, 1000)
+            except Exception:  # noqa: BLE001
+                ts = []
+            trades_by_symbol[sym] = ts
+            for t in ts:
+                if t.get("timestamp"):
+                    d = eq.ts_to_date(t["timestamp"])
+                    if first_date is None or d < first_date:
+                        first_date = d
+
+    today = now.strftime("%Y-%m-%d")
+    btc_dates = sorted((closes.get("BTC/JPY") or {}).keys())
+    calendar = [d for d in btc_dates if (first_date is None or d >= first_date) and d <= today]
+
+    gen = now.strftime("%Y-%m-%d %H:%M JST")
+    if not calendar or not first_date:
+        note = ("約定履歴が取得できません（DRY_RUN/鍵未設定など）。" if not broker.has_exchange
+                else "まだ約定がありません。")
+        data = {"dates": [], "nav": [], "btc_index": [], "held_latest": []}
+    else:
+        note = "※NAVは入出金・発注額変更の影響を受けない戦略リターン（純資産額は非表示）。"
+        data = eq.build_curve(trades_by_symbol, closes, calendar)
+    return HTMLResponse(eq.render_equity_html(data, generated=gen, note=note))
+
+
 @app.get("/powerzones")
 async def powerzones_status(secret: str = "", format: str = "html"):
     """パワーゾーン戦略の現在シグナル状況（発注しない・チャートの代替）。"""
@@ -586,6 +652,7 @@ table.pos-tbl th.l,table.pos-tbl td.l{text-align:left}table.pos-tbl th{color:#66
 <div class='card'>
   <div class='muted'>詳しく見る・設定</div>
   <a href='/report_momentum?secret=__S__' target='_blank'>📊 モメンタム損益</a> ／
+  <a href='/equity?secret=__S__' target='_blank'>📈 資産推移(NAV)</a> ／
   <a href='/report?secret=__S__' target='_blank'>📊 パワーゾーン損益(旧)</a> ／
   <a href='/positions?secret=__S__' target='_blank'>🔻 建玉・信用状況</a> ／
   <a href='/tax?secret=__S__' target='_blank'>🧾 年間損益(税金の目安)</a><br>
