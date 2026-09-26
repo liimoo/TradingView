@@ -37,5 +37,7 @@ jobs:
             echo "変更なし（記録スキップ or 同日重複）"
           else
             git commit -m "chore: 日次パフォーマンス記録 [skip ci]"
-            git push
+            # リモートが進んでいても押し出せるよう rebase してから push（衝突に強く）
+            git pull --rebase origin main || true
+            git push || { git pull --rebase origin main && git push; }
           fi
