@@ -26,6 +26,8 @@ from pathlib import Path
 JST = timezone(timedelta(hours=9))
 URL = os.getenv("SNAPSHOT_URL",
                 "https://tradingview-rsi-relay.onrender.com/snapshot?public=1")
+BACKFILL_URL = os.getenv("BACKFILL_URL",
+                         "https://tradingview-rsi-relay.onrender.com/equity/backfill?public=1")
 CSV_PATH = Path(__file__).resolve().parent.parent / "data" / "perf_log.csv"
 COLUMNS = ["date", "regime_up", "regime_distance_pct", "index", "btc_jpy",
            "n_positions", "held", "targets", "nav", "book_ret_pct"]
@@ -115,6 +117,14 @@ def main() -> int:
     held = d.get("held") or []
 
     rows = _read_rows()
+    if not rows:  # 初回：過去NAVをサーバから一度だけ取り込む（以後は追記のみ）
+        try:
+            bf = _fetch_json(BACKFILL_URL, tries=2).get("rows") or []
+            if bf:
+                rows = bf
+                print(f"[perf_log] 過去バックフィルを取り込み: {len(bf)}日分")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[perf_log] バックフィル取得失敗（過去なしで開始）: {exc}", file=sys.stderr)
     prev_nav = _prev_nav(rows, today)
     ret = _book_return(held)  # None=価格取得全滅
     nav = prev_nav * (1 + ret) if ret is not None else prev_nav
