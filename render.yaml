@@ -78,6 +78,12 @@ services:
         value: "90" # 上昇率の測定期間(営業日)
       - key: CRYPTO_REGIME_FILTER
         value: "true" # 地合いフィルター: クリプト全体が200日線割れの弱気相場は全て現金へ退避
+      - key: DAILY_REVIEW_ENABLED
+        value: "true" # 日次リスクレビュー(資産¥・NAV・DD・地合い)を1日1回Discordへ＝私的ログ＋アラート
+      - key: DAILY_REVIEW_HOUR
+        value: "10" # 送信時刻(JST)。perf_log更新(9:30)後の10時
+      - key: DD_ALERT_PCT
+        value: "0.10" # 現在ドローダウンがこの深さ(-10%)に達したら⚠️警告を付ける
       - key: MONITOR_INTERVAL_SEC
         value: "60"
       - key: MAX_DAILY_LOSS_JPY

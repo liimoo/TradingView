@@ -64,6 +64,16 @@ def test_normalize_index():
     assert equity.normalize_index(dates, closes) == [100.0, 200.0, 150.0]
 
 
+def test_drawdowns():
+    # 100→120(ピーク)→90 → 最大DD=(90/120-1)=-25%、現在DDも-25%（回復してない）
+    d = equity.drawdowns([100, 110, 120, 100, 90])
+    assert d["max_dd"] == -25.0 and d["cur_dd"] == -25.0
+    # 最高値更新中なら現在DD=0
+    d2 = equity.drawdowns([100, 90, 130])
+    assert d2["cur_dd"] == 0.0 and d2["max_dd"] == -10.0
+    assert equity.drawdowns([]) == {"max_dd": 0.0, "cur_dd": 0.0, "peak": None}
+
+
 def test_build_curve_shape():
     trades = {"BTC/JPY": [{"timestamp": _ts("2026-01-01"), "side": "buy", "amount": 0.1}]}
     cal = ["2026-01-01", "2026-01-02"]

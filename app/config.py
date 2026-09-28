@@ -119,6 +119,11 @@ class Settings:
     # 地合いフィルター: true=クリプト全体(等ウェイト指数)が200日線割れの弱気相場では全て現金へ退避。
     crypto_regime_filter: bool = field(default_factory=lambda: _get("CRYPTO_REGIME_FILTER", "true").lower() in ("1", "true", "yes"))
 
+    # ===== 日次リスクレビュー（資産¥・NAV・DD・地合いを1日1回Discordへ＝私的ログ＋アラート） =====
+    daily_review_enabled: bool = field(default_factory=lambda: _get("DAILY_REVIEW_ENABLED", "true").lower() in ("1", "true", "yes"))
+    daily_review_hour: int = field(default_factory=lambda: int(_get("DAILY_REVIEW_HOUR", "10")))  # JST。perf_log更新(9:30)後
+    dd_alert_pct: float = field(default_factory=lambda: float(_get("DD_ALERT_PCT", "0.10")))  # 現在DDがこの深さで⚠️。0.10=-10%
+
     # ===== 戦略モード =====
     # "webhook" = 旧: TradingViewのRSIアラートを受けて売買（15分逆張り・ロング+ショート）
     # "powerzones" = 新: サーバが日足でLarry ConnorsのRSIパワーゾーンを計算し売買（ロングのみ）

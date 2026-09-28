@@ -18,7 +18,8 @@ description: bitbankの暗号資産モメンタム自動売買システム(Rende
 - **`GET /snapshot?secret=...`（要合言葉）** … PDCA用の一発サマリー。総資産・**建玉の円評価**・現金・**隔離ADAの時価**・**地合い（指数/200日線/乖離%/リスクオン/上位候補）**・BTCベンチマークを返す。まずこれを見る。
 - `GET /health`（公開・合言葉不要） … mode/strategy/killed/建玉(base,entry)/当日損益/主要パラメータ。
 - `GET /positions?format=json&secret=...` … 建玉の現在値・含み損益（円換算済み）。
-- `GET /equity?secret=...` … **資産推移(NAV指数)**。約定履歴＋bitbank公開日足から戦略NAV（保有銘柄の等ウェイト日次リターンの連鎖＝入出金の影響を受けない実質リターン）を再構築しBTC買い持ちと比較。純資産額は非表示。今後分は `data/perf_log.csv` の `nav` 列が同じ指標を継ぎ足す。
+- `GET /equity?secret=...` … **資産推移**。上に「現在のお金」（総資産・評価額・含み損益・現金＝本人のみ実額）、下に**NAV指数**（保有銘柄の等ウェイト日次リターンの連鎖＝入出金の影響を受けない実質リターン）＋BTCベンチ＋**最大DD/現在DD**。軽量（perf_log.csvを読むだけ＋現在¥はbuild_positions 30秒キャッシュ）。今後分は `data/perf_log.csv` の `nav` 列が継ぎ足す。
+- **日次リスクレビュー**（`app/daily_review.py`）: 毎日 JST10時にRenderが資産¥・NAV・DD・地合いをDiscordへ（私的ログ＋DD/地合いアラート）。手動は `GET /review/run?secret=`。しきい値は `DD_ALERT_PCT`(-10%)。金額はDiscord(非公開)と/equityのみ＝公開perf_log.csvには出さない。
 - `GET /tax?secret=...&year=YYYY` … 暦年の実現損益（税・PDCAの確定損益）。
 - **⚠️ WebFetchは同一URLを15分キャッシュする。** ライブ値を見るときは必ず `?cb=<適当な変化値>` を付けてキャッシュ回避すること（過去に「反映されてないように見えた」原因はこれ）。
 - **合言葉(secret)はURLに載る＝私(AI)のツールで扱わない。** 合言葉が要るページは**ユーザー自身のブラウザで開いてもらい数値を教えてもらう**。合言葉が露出したら**ローテーション推奨**。

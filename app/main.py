@@ -82,6 +82,10 @@ async def lifespan(app: FastAPI):
     if settings.stocks_enabled:
         from . import stocks
         tasks.append(asyncio.create_task(stocks.stocks_loop()))
+    # 日次リスクレビュー（資産¥・NAV・DD・地合いをDiscordへ／DD警戒でアラート）
+    if settings.daily_review_enabled:
+        from . import daily_review
+        tasks.append(asyncio.create_task(daily_review.daily_review_loop()))
     try:
         yield
     finally:
@@ -413,6 +417,16 @@ async def equity_page(secret: str = ""):
     return HTMLResponse(eq.render_equity_html(
         data, generated=gen, money=money,
         note="グラフのNAVは入出金の影響を受けない戦略指数。上のお金は現在の実額（本人のみ）。"))
+
+
+@app.get("/review/run")
+async def review_run(secret: str = ""):
+    """日次リスクレビューを今すぐDiscordへ送る（手動テスト用・要合言葉）。"""
+    if not verify_secret(secret, settings.webhook_secret):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    from . import daily_review
+    await daily_review.build_and_send_review()
+    return JSONResponse({"ran": True})
 
 
 @app.get("/powerzones")

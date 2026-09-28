@@ -116,6 +116,25 @@ def build_curve(trades_by_symbol: dict, closes: dict[str, dict[str, float]],
 
 # ---- 描画（純粋：data -> HTML文字列） ----
 
+def drawdowns(navvals: list[float]) -> dict:
+    """NAV系列から 最大ドローダウン・現在ドローダウン を返す（%・0以下）（純粋関数）。
+
+    max_dd = 期間中いちばん深かった「ピークからの下落率」。
+    cur_dd = 直近が「過去最高値からどれだけ下」か（0なら最高値更新中）。
+    """
+    if not navvals:
+        return {"max_dd": 0.0, "cur_dd": 0.0, "peak": None}
+    peak = navvals[0]
+    maxdd = 0.0
+    for v in navvals:
+        peak = max(peak, v)
+        if peak:
+            maxdd = min(maxdd, (v / peak - 1) * 100)
+    hi = max(navvals)
+    cur_dd = (navvals[-1] / hi - 1) * 100 if hi else 0.0
+    return {"max_dd": round(maxdd, 2), "cur_dd": round(cur_dd, 2), "peak": round(hi, 4)}
+
+
 def _poly(points: list[tuple[float, float]]) -> str:
     return " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
 
@@ -222,11 +241,14 @@ def render_equity_html(data: dict, generated: str = "", note: str = "",
     held = "、".join(data.get("held_latest") or []) or "なし（現金）"
     btc_txt = (f"<span class='muted'>／ BTC買い持ち {('+' if btc_ret >= 0 else '')}{btc_ret:.1f}%</span>"
                if btc_ret is not None else "")
+    dd = drawdowns(navvals)
     body = (
         "<div class='card'>"
         f"<div>NAV <span class='big {rcls}'>{cur:.1f}</span> "
         f"<span class='{rcls}'>({'+' if ret >= 0 else ''}{ret:.1f}%)</span> {btc_txt}</div>"
         f"<div class='muted'>期間 {esc(dates[0])} 〜 {esc(dates[-1])}（{n}日）／ 現在の保有: {esc(held)}</div>"
+        f"<div class='muted'>最大ドローダウン <span class='neg'>{dd['max_dd']:.1f}%</span>"
+        f"　現在 {dd['cur_dd']:.1f}%<span class='muted'>（0%＝最高値圏）</span></div>"
         f"{svg}"
         "<div><span class='lg' style='background:#0a8f3c'></span>NAV（戦略）"
         "<span class='lg' style='background:#9aa0aa'></span>BTC（買い持ち・ベンチ）</div>"

@@ -17,6 +17,13 @@
 
 ---
 
+## 2026-09-28 リスク可視化を強化（DD表示・日次レビュー/アラート）
+- 変更（運用額拡大に伴う"守り"の強化）:
+  - **A. ドローダウン可視化**: `/equity` に 最大DD・現在DD を表示（NAVから算出）。
+  - **B+C. 日次リスクレビュー**（`app/daily_review.py`）: 毎日 JST10時に **資産¥・NAV・DD・地合いをDiscordへ**送信＝**私的な¥ログ**（Discordに毎日残る）＋**アラート**（現在DDが`DD_ALERT_PCT`(-10%)到達 or 地合いオフで⚠️）。既存Discord設定を使用（新secret不要）。手動送信 `GET /review/run?secret=`。
+- 実装: 純関数 `equity.drawdowns` / `daily_review.compose_review` をテスト。config `daily_review_enabled/hour`・`dd_alert_pct`。render.yamlに追加。全131件パス。
+- 方針維持: 金額は本人ページ(/equity)とDiscord(非公開)のみ。公開perf_log.csvは金額なし。
+
 ## 2026-09-28 不要コードの整理（ペーパー検証を撤去）
 - 変更: 停止済み・役目終了の**暗号資産ペーパー検証を完全撤去**（`app/crypto_momentum.py`、`/paper`・`/paper/run`ルート、lifespanの起動、config `crypto_paper_*`、`CRYPTO_MOM_REBAL`、未使用の`stocks_near_rsi`、render.yamlの`CRYPTO_PAPER_*`、通知ガイド行、テスト）。
 - 保持: `ORDER_QUOTE_AMOUNT` は `ORDER_SIZE_PCT=0` 時のフォールバックとして残置（現在は%モードで未使用）。powerzones/webhook戦略も戻せる保険として残置。
