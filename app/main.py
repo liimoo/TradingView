@@ -86,6 +86,10 @@ async def lifespan(app: FastAPI):
     if settings.daily_review_enabled:
         from . import daily_review
         tasks.append(asyncio.create_task(daily_review.daily_review_loop()))
+    # 時間内リスク監視（保存なし・直近ピークから急落で即Discord警告）
+    if settings.risk_watch_enabled:
+        from . import risk_watch
+        tasks.append(asyncio.create_task(risk_watch.risk_watch_loop()))
     try:
         yield
     finally:

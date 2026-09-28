@@ -84,6 +84,12 @@ services:
         value: "10" # 送信時刻(JST)。perf_log更新(9:30)後の10時
       - key: DD_ALERT_PCT
         value: "0.10" # 現在ドローダウンがこの深さ(-10%)に達したら⚠️警告を付ける
+      - key: RISK_WATCH_ENABLED
+        value: "true" # 時間内リスク監視(保存なし・急落時のみDiscord警告)
+      - key: RISK_WATCH_INTERVAL_MIN
+        value: "60" # 監視間隔(分)。60=毎時
+      - key: INTRADAY_DROP_PCT
+        value: "0.08" # 直近ピークからこの%(-8%)下落で⚠️（ヒステリシスで連投防止）
       - key: MONITOR_INTERVAL_SEC
         value: "60"
       - key: MAX_DAILY_LOSS_JPY

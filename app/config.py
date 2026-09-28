@@ -124,6 +124,11 @@ class Settings:
     daily_review_hour: int = field(default_factory=lambda: int(_get("DAILY_REVIEW_HOUR", "10")))  # JST。perf_log更新(9:30)後
     dd_alert_pct: float = field(default_factory=lambda: float(_get("DD_ALERT_PCT", "0.10")))  # 現在DDがこの深さで⚠️。0.10=-10%
 
+    # ===== 時間内リスク監視（保存なし・急落時のみDiscord警告。日次より速く気づくため） =====
+    risk_watch_enabled: bool = field(default_factory=lambda: _get("RISK_WATCH_ENABLED", "true").lower() in ("1", "true", "yes"))
+    risk_watch_interval_min: int = field(default_factory=lambda: int(_get("RISK_WATCH_INTERVAL_MIN", "60")))  # 監視間隔(分)
+    intraday_drop_pct: float = field(default_factory=lambda: float(_get("INTRADAY_DROP_PCT", "0.08")))  # 直近ピークからこの%下落で⚠️。0.08=-8%
+
     # ===== 戦略モード =====
     # "webhook" = 旧: TradingViewのRSIアラートを受けて売買（15分逆張り・ロング+ショート）
     # "powerzones" = 新: サーバが日足でLarry ConnorsのRSIパワーゾーンを計算し売買（ロングのみ）
