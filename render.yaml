@@ -20,9 +20,9 @@ services:
         # モメンタム対象。ADA/JPYは除外＝入金した保有ADAをbotに取り込ませない/売買させないため(隔離)。
         value: BTC/JPY,ETH/JPY,DOGE/JPY,LTC/JPY,ATOM/JPY,DOT/JPY,SOL/JPY,AVAX/JPY,BCH/JPY,BNB/JPY,TRX/JPY,XLM/JPY,SUI/JPY,QTUM/JPY,MKR/JPY,SAND/JPY,BAT/JPY,MANA/JPY,LPT/JPY
       - key: ORDER_QUOTE_AMOUNT
-        value: "200000" # 1発注=固定¥200,000（上位5銘柄で最大約¥100万を運用）。運用規模拡大のため100,000→200,000へ増額。固定額なのでADA残(総資産)には釣られない。※ライブ値はRenderのEnvironmentが正
+        value: "200000" # ORDER_SIZE_PCT=0 のときのみ使う固定額フォールバック。現在は%モードのため未使用
       - key: ORDER_SIZE_PCT
-        value: "0" # 0=固定額(ORDER_QUOTE_AMOUNT)を使う。ADA隔離のため%運用は停止(総資産連動を避ける)
+        value: "0.19" # 1銘柄=総資産の19%（上位5で約95%投入・現金5%温存）。ADA全売却で総資産=運用資金になったため%配分へ復帰。※ライブ値はRenderのEnvironmentが正
       - key: MIN_ORDER_JPY
         value: "100" # これ未満の発注額は資金不足で見送り
       - key: EXCHANGE_ID
