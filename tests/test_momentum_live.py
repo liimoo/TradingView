@@ -93,3 +93,68 @@ def test_regime_down_downtrend():
 def test_regime_insufficient_data_defaults_up():
     # 本数不足なら判定不能→True(通常運用・誤清算しない)
     assert ml.regime_is_up({"A": [1, 2, 3]}, sma_len=200) is True
+
+
+# ---- 下火→現金退避 の end-to-end（発注はモック） ----
+
+def test_rebalance_regime_down_sells_all_to_cash(monkeypatch):
+    """地合いが弱気(指数が200日線↓)なら、目標を空にして全保有を売り現金化する。"""
+    import asyncio
+    from app.config import settings
+
+    dn = list(range(300, 1, -1))  # 単調減少＝指数もSMA割れ→リスクオフ
+    data = {"BTC/JPY": dn, "ETH/JPY": dn}
+
+    monkeypatch.setattr(settings, "crypto_regime_filter", True)
+    monkeypatch.setattr(settings, "pz_sma_len", 20)
+    monkeypatch.setattr(settings, "crypto_mom_top", 5)
+    monkeypatch.setattr(settings, "crypto_mom_lookback", 3)
+    monkeypatch.setattr(settings, "order_size_pct", 0.19)
+    monkeypatch.setattr(settings, "min_order_jpy", 100)
+
+    monkeypatch.setattr(ml.risk_manager, "is_killed", lambda: False)
+    monkeypatch.setattr(ml.risk_manager, "daily_block_reason", lambda *a, **k: None)
+    monkeypatch.setattr(ml.risk_manager, "_positions", {})  # held_after 用（売却後は空想定）
+    # 現在の建玉（時価）＝2銘柄保有中
+    monkeypatch.setattr(ml, "_position_values",
+                        lambda: {"BTC/JPY": 190000.0, "ETH/JPY": 190000.0})
+
+    sold, bought = [], []
+
+    async def fake_sell_all(sym):
+        sold.append(sym)
+
+    async def fake_trim(sym, q):  # noqa: ARG001
+        pass
+
+    async def fake_buy(sym, q):  # noqa: ARG001
+        bought.append(sym)  # 下火では呼ばれてはいけない
+
+    async def fake_notify(msg):  # noqa: ARG001
+        pass
+
+    monkeypatch.setattr(ml, "_sell_all", fake_sell_all)
+    monkeypatch.setattr(ml, "_trim", fake_trim)
+    monkeypatch.setattr(ml, "_buy", fake_buy)
+    monkeypatch.setattr(ml, "notify", fake_notify)
+
+    summary = asyncio.run(ml.rebalance(data))
+
+    assert summary["regime_down"] is True          # 弱気判定
+    assert summary["target"] == []                 # 目標＝現金（保有ゼロ）
+    assert set(summary["sell_all"]) == {"BTC/JPY", "ETH/JPY"}
+    assert set(sold) == {"BTC/JPY", "ETH/JPY"}     # 全保有を実際に売却
+    assert bought == []                            # 買いは一切なし
+
+
+def test_rebalance_skips_when_killed(monkeypatch):
+    """キルスイッチON中はリバランスしない（売買ゼロ）。"""
+    import asyncio
+    monkeypatch.setattr(ml.risk_manager, "is_killed", lambda: True)
+
+    async def fake_notify(msg):  # noqa: ARG001
+        pass
+
+    monkeypatch.setattr(ml, "notify", fake_notify)
+    summary = asyncio.run(ml.rebalance({"BTC/JPY": [1, 2, 3]}))
+    assert summary == {"skipped": "killed"}
