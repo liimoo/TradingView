@@ -389,10 +389,30 @@ async def equity_page(secret: str = ""):
     data = {"dates": dates, "nav": nav,
             "btc_index": eq.normalize_index(dates, btc_closes),
             "held_latest": nav[-1]["held"] if nav else []}
+    # 現在のお金（本人ページなので円で表示OK）。build_positionsは30秒キャッシュで軽い。
+    money = None
+    try:
+        pos = await asyncio.to_thread(build_positions)
+        positions = pos.get("positions") or []
+        book = sum(p["price"] * p["base"] for p in positions
+                   if p.get("price") and p.get("base"))
+        upnl = sum(p["upnl"] for p in positions if p.get("upnl") is not None)
+        cost = book - upnl
+        equity = cash = None
+        if broker.has_exchange:
+            try:
+                equity, cash = await asyncio.to_thread(broker.portfolio)
+            except Exception:  # noqa: BLE001
+                pass
+        money = {"equity": equity, "cash": cash, "book": round(book),
+                 "upnl": round(upnl), "upnl_pct": (upnl / cost * 100) if cost else None}
+    except Exception:  # noqa: BLE001
+        money = None
+
     gen = datetime.now(eq.JST).strftime("%Y-%m-%d %H:%M JST")
     return HTMLResponse(eq.render_equity_html(
-        data, generated=gen,
-        note="perf_log.csv を表示（軽量）。過去はバックフィル、今後は日次で自動追記。"))
+        data, generated=gen, money=money,
+        note="グラフのNAVは入出金の影響を受けない戦略指数。上のお金は現在の実額（本人のみ）。"))
 
 
 @app.get("/powerzones")

@@ -120,8 +120,12 @@ def _poly(points: list[tuple[float, float]]) -> str:
     return " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
 
 
-def render_equity_html(data: dict, generated: str = "", note: str = "") -> str:
-    """NAV(戦略)とBTC(ベンチ)を start=100 で重ねた折れ線ページ（純粋関数）。"""
+def render_equity_html(data: dict, generated: str = "", note: str = "",
+                       money: dict | None = None) -> str:
+    """NAV(戦略)とBTC(ベンチ)の折れ線＋現在のお金（money）を表示するページ（純粋関数）。
+
+    money（任意・本人ページのみ）: {equity, cash, book, upnl, upnl_pct} を円で表示する。
+    """
     import html as _html
 
     dates = data.get("dates") or []
@@ -138,13 +142,37 @@ def render_equity_html(data: dict, generated: str = "", note: str = "") -> str:
     head = ("<!doctype html><html lang='ja'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width, initial-scale=1'>"
             f"<title>資産推移(NAV)</title><style>{css}</style></head><body>"
-            "<h1>📈 資産推移（NAV指数・start=100）</h1>"
-            "<p class='muted'>NAV＝保有銘柄の等ウェイト日次リターンを連鎖した指数。"
-            "<b>入出金・発注額の変更の影響を受けない</b>ので、純粋な戦略の伸びが見える"
-            "（純資産額そのものは表示しません）。灰=BTC(買い持ち)ベンチ。</p>")
+            "<h1>📈 資産推移</h1>"
+            "<p class='muted'>下の『現在のお金』が実際の金額。グラフの<b>NAV</b>は"
+            "<b>入出金・発注額の変更の影響を受けない</b>戦略の伸び（start=100）で、灰=BTC買い持ちベンチ。</p>")
+
+    def _yen(v):
+        return f"¥{v:,.0f}" if isinstance(v, (int, float)) else "-"
+
+    money_html = ""
+    if money:
+        up = money.get("upnl")
+        upp = money.get("upnl_pct")
+        if up is not None:
+            ucls = "pos" if up >= 0 else "neg"
+            uptxt = f"<span class='{ucls}'>{'+' if up >= 0 else ''}{_yen(up)}"
+            if upp is not None:
+                uptxt += f"（{'+' if upp >= 0 else ''}{upp:.1f}%）"
+            uptxt += "</span>"
+        else:
+            uptxt = "-"
+        money_html = (
+            "<div class='card'>"
+            "<div class='muted'>💰 現在のお金（この口座・本人のみ表示）</div>"
+            f"<div style='margin-top:.35rem'>運用評価額 <span class='big'>{_yen(money.get('book'))}</span>"
+            f"　含み損益 {uptxt}</div>"
+            f"<div class='muted' style='margin-top:.35rem'>総資産 <b>{_yen(money.get('equity'))}</b>"
+            f"　／　現金 {_yen(money.get('cash'))}</div>"
+            "</div>")
 
     if len(navvals) < 2:
-        return head + "<div class='card'>データがまだ足りません（約定履歴が2日分以上たまると表示されます）。</div></body></html>"
+        return (head + money_html
+                + "<div class='card'>NAVの推移はデータがたまると表示されます（約定履歴が2日分以上）。</div></body></html>")
 
     cur = navvals[-1]
     ret = cur - 100.0
@@ -207,4 +235,4 @@ def render_equity_html(data: dict, generated: str = "", note: str = "") -> str:
         f"<p class='muted'>生成: {esc(generated)}　データ源: bitbank公開日足＋約定履歴。"
         "NAVは価格変動と保有銘柄のみで動く（入出金の影響を除く）。</p>"
     )
-    return head + body + "</body></html>"
+    return head + money_html + body + "</body></html>"
