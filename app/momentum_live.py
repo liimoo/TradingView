@@ -225,10 +225,11 @@ async def rebalance(data: dict | None = None) -> dict:
         target = []
 
     # 1銘柄あたりの目標額 = 総資産 × order_size_pct。
-    # ただし総投資は MAX_INVEST(=95%) までに抑え、5%は現金で残す。
-    # これをしないと 5銘柄×20%=100% で現金が尽き、最後の買いが bitbank 60002
-    # （成行買いが資金上限を超過）で失敗する。手数料と成行時の確保余裕分にも必要。
-    MAX_INVEST = 0.95
+    # ただし総投資は MAX_INVEST(=90%) までに抑え、約10%は現金で残す。
+    # 95%(現金5%)だと、最後の空き枠を"成行"で埋める時に手数料+滑りの余裕が足りず
+    # bitbank 60002（成行買いが資金上限を超過）で失敗した（2026-09-30 SOL枠で発生）。
+    # 現金を10%残すことで最後の成行買いにも確実に余裕を持たせる。
+    MAX_INVEST = 0.90
     assets = free = 0.0
     if broker.has_exchange:
         try:
@@ -262,7 +263,7 @@ async def rebalance(data: dict | None = None) -> dict:
     if regime_down:
         lines.append("🛡️ 地合い弱気（クリプト全体が200日線↓）→ 全て現金へ退避")
     lines += [f"🎯 今月の上位{settings.crypto_mom_top}: {tgt_txt}",
-              f"（1銘柄の目標 ≈ ¥{target_quote:,.0f}／総資産の{per*100:.0f}%・現金約5%は温存）"]
+              f"（1銘柄の目標 ≈ ¥{target_quote:,.0f}／総資産の{per*100:.0f}%・現金約{(1 - per * settings.crypto_mom_top) * 100:.0f}%は温存）"]
     if plan["sell_all"]:
         lines.append(f"➖ 退出: {'、'.join(plan['sell_all'])}")
     if plan["trim"]:
