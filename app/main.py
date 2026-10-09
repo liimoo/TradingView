@@ -259,6 +259,8 @@ async def snapshot_endpoint(secret: str = "", format: str = "json", public: int 
 
 
 _RAW_PERFLOG = "https://raw.githubusercontent.com/liimoo/TradingView/main/data/perf_log.csv"
+# /equity のグラフ表示開始日。これ以前（軍資金が少なく参考にならない初期）は表示しない。
+_EQUITY_START = "2026-10-01"
 
 
 def _bitbank_pair(sym: str) -> str:
@@ -390,12 +392,19 @@ async def equity_page(secret: str = ""):
             text = ""
 
     rows = [r for r in _csv.DictReader(io.StringIO(text)) if r.get("nav")] if text else []
+    # 表示開始日より前（軍資金が少なすぎて参考にならない初期）を除外
+    rows = [r for r in rows if r.get("date", "") >= _EQUITY_START]
     dates = [r["date"] for r in rows]
     nav = [{"nav": float(r["nav"]),
             "held": (r.get("held") or "").split("|") if r.get("held") else []} for r in rows]
+    # NAVを表示開始日で100に再基準化（開始前を除外したので、グラフは開始日=100から）
+    if nav:
+        base = nav[0]["nav"] or 100.0
+        for p in nav:
+            p["nav"] = round(p["nav"] / base * 100, 4)
     btc_closes = {r["date"]: float(r["btc_jpy"]) for r in rows if r.get("btc_jpy")}
     data = {"dates": dates, "nav": nav,
-            "btc_index": eq.normalize_index(dates, btc_closes),
+            "btc_index": eq.normalize_index(dates, btc_closes),  # BTCも開始日=100に自動基準化
             "held_latest": nav[-1]["held"] if nav else []}
     # 現在のお金（本人ページなので円で表示OK）。build_positionsは30秒キャッシュで軽い。
     money = None
@@ -420,7 +429,7 @@ async def equity_page(secret: str = ""):
     gen = datetime.now(eq.JST).strftime("%Y-%m-%d %H:%M JST")
     return HTMLResponse(eq.render_equity_html(
         data, generated=gen, money=money,
-        note="グラフのNAVは入出金の影響を受けない戦略指数。上のお金は現在の実額（本人のみ）。"))
+        note=f"グラフは {_EQUITY_START} 以降・開始=100に基準化（それ以前の少額期は除外）。NAVは入出金の影響を受けない戦略指数。上のお金は現在の実額（本人のみ）。"))
 
 
 @app.get("/review/run")

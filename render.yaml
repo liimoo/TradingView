@@ -17,8 +17,9 @@ services:
       - key: TRADING_MODE
         sync: false # DRY_RUN → 準備完了後にダッシュボードで LIVE へ
       - key: ALLOWED_SYMBOLS
-        # モメンタム対象。ADA/JPYは除外＝入金した保有ADAをbotに取り込ませない/売買させないため(隔離)。
-        value: BTC/JPY,ETH/JPY,DOGE/JPY,LTC/JPY,ATOM/JPY,DOT/JPY,SOL/JPY,AVAX/JPY,BCH/JPY,BNB/JPY,TRX/JPY,XLM/JPY,SUI/JPY,QTUM/JPY,MKR/JPY,SAND/JPY,BAT/JPY,MANA/JPY,LPT/JPY
+        # モメンタム対象。流動性の高い12銘柄に厳選（2026-10-09）。薄いアルト(SUI/QTUM/MKR/SAND/BAT/MANA/LPT)
+        # は成績・流動性とも悪く滑りも大きいため除外＝バックテストで-13%→+3%・DD低下・売買減。ADAは隔離で元々除外。
+        value: BTC/JPY,ETH/JPY,SOL/JPY,LTC/JPY,BCH/JPY,BNB/JPY,DOGE/JPY,AVAX/JPY,DOT/JPY,ATOM/JPY,TRX/JPY,XLM/JPY
       - key: ORDER_QUOTE_AMOUNT
         value: "200000" # ORDER_SIZE_PCT=0 のときのみ使う固定額フォールバック。現在は%モードのため未使用
       - key: ORDER_SIZE_PCT
