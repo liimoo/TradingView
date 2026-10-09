@@ -62,6 +62,22 @@ def reconcile(held: list, target: list) -> tuple:
     return sells, buys
 
 
+def rebalance_reason(held: set, target: set, regime_changed: bool,
+                     regime_up: bool, month_changed: bool) -> str | None:
+    """リバランスを発火すべきか＝理由を返す（不要ならNone）。純粋関数。
+
+    優先順位: 地合い変化 > 顔ぶれ(目標集合)変化 > 月次の再調整。
+    「顔ぶれ変化」で発火することで、上位入りした銘柄を翌評価で即買い、空き枠の遊びを無くす。
+    """
+    if regime_changed:
+        return "地合い回復→再開" if regime_up else "地合い悪化→退避"
+    if set(target) != set(held):
+        return "顔ぶれ変更→即入替"
+    if month_changed:
+        return "月次の再調整"
+    return None
+
+
 def market_index(data: dict) -> list:
     """全銘柄の等ウェイト正規化指数（地合い判定用）。各銘柄を期首=1に正規化して平均。"""
     if not data:
@@ -294,18 +310,20 @@ _last_regime_up: bool | None = None
 
 
 async def momentum_loop() -> None:
-    """毎日 pz_eval_hours(JST) に評価。地合いは"日次"で見張り、切替時は即リバランス。
+    """毎日 pz_eval_hours(JST) に評価。地合い＋上位の顔ぶれを"日次"で見張り、変化した日に即リバランス。
 
-    ・上位N銘柄のローテーション＝月次（月替わりで実行）。
-    ・地合い（リスクオン/オフ）＝毎日チェックし、変化した日はその場でリバランス
-      （例：指数が200日線を回復→翌日には現金から再エントリー／割れ→即現金退避）。
+    ・上位N銘柄の入れ替え：目標(top-N)が現在の保有と変わったら翌評価で即入替（空き枠を遊ばせない）。
+      例：上位入りした銘柄を翌日に買い、外れた銘柄を売る。→ 未投資（遊ぶ現金）を減らす。
+    ・地合い（リスクオン/オフ）：毎日チェックし、変化した日に即リバランス（回復→再エントリー／割れ→現金退避）。
+    ・月1で全体の再調整（ドリフト是正）も行う（保険）。
+    ※顔ぶれが同じ日は売買しない（値ブレだけの毎日リバランスはせず、無駄な手数料を出さない）。
     """
     global _last_rebalance_month, _last_regime_up
     if settings.strategy != "momentum":
         logger.info("モメンタム戦略は無効（STRATEGY=%s）", settings.strategy)
         return
     hours = ", ".join(f"{h}:00" for h in settings.pz_eval_hours)
-    logger.info("モメンタム戦略 起動（地合い日次チェック＋月次ローテーション JST %s頃・上位%d）",
+    logger.info("モメンタム戦略 起動（地合い＋顔ぶれを日次で見張り変化時に即入替 JST %s頃・上位%d）",
                 hours, settings.crypto_mom_top)
     while True:
         await asyncio.sleep(_seconds_until_eval())
@@ -318,11 +336,19 @@ async def momentum_loop() -> None:
                 await asyncio.sleep(60)
                 continue
             regime_up_now = (not settings.crypto_regime_filter) or regime_is_up(data, settings.pz_sma_len)
-            month_changed = ym != _last_rebalance_month
+            # 目標集合（地合いオフなら現金＝空）と、現在の保有集合（端数は除外）を比較
+            if regime_up_now:
+                target = set(momentum_targets(data, settings.crypto_mom_top,
+                                               settings.crypto_mom_lookback, settings.pz_sma_len))
+            else:
+                target = set()
+            held = {s for s, v in _position_values().items() if v >= settings.min_order_jpy}
             regime_changed = _last_regime_up is not None and regime_up_now != _last_regime_up
-            if month_changed or regime_changed:
-                reason = "月次ローテーション" if month_changed else ("地合い回復→再開" if regime_up_now else "地合い悪化→退避")
-                logger.info("モメンタム リバランス発火（%s）", reason)
+            month_changed = ym != _last_rebalance_month  # 月1の全体再調整（ドリフト是正）の保険
+            reason = rebalance_reason(held, target, regime_changed, regime_up_now, month_changed)
+            if reason:
+                logger.info("モメンタム リバランス発火（%s）held=%s target=%s",
+                            reason, sorted(held), sorted(target))
                 await rebalance(data)  # 取得済みデータを流用
                 _last_rebalance_month = ym
             _last_regime_up = regime_up_now

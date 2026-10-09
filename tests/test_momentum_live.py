@@ -47,6 +47,22 @@ def test_reconcile_no_change():
     assert sells == [] and buys == []    # 同じ顔ぶれなら売買なし
 
 
+def test_rebalance_reason():
+    H = {"ETH/JPY", "LTC/JPY"}
+    # 地合い変化が最優先
+    assert ml.rebalance_reason(H, set(), True, False, False) == "地合い悪化→退避"
+    assert ml.rebalance_reason(set(), H, True, True, False) == "地合い回復→再開"
+    # 顔ぶれが変われば即入替（新しい銘柄が目標入り/外れ）
+    assert ml.rebalance_reason(H, {"ETH/JPY", "SOL/JPY"}, False, True, False) == "顔ぶれ変更→即入替"
+    assert ml.rebalance_reason({"ETH/JPY"}, {"ETH/JPY", "SOL/JPY"}, False, True, False) == "顔ぶれ変更→即入替"
+    # 顔ぶれ同じ・地合い不変 → 発火しない（値ブレだけでは売買しない）
+    assert ml.rebalance_reason(H, {"LTC/JPY", "ETH/JPY"}, False, True, False) is None
+    # 顔ぶれ同じでも月替わりなら保険で再調整
+    assert ml.rebalance_reason(H, H, False, True, True) == "月次の再調整"
+    # 地合い変化は顔ぶれ変化より優先
+    assert ml.rebalance_reason(H, {"SOL/JPY"}, True, True, False) == "地合い回復→再開"
+
+
 def test_plan_rebalance_full():
     # A=過大→削り, C=新規→買い, B=目標外→全売り, 目標1銘柄=80円
     plan = ml.plan_rebalance({"A/JPY": 100.0, "B/JPY": 100.0},
