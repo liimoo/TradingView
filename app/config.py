@@ -116,8 +116,12 @@ class Settings:
     # モメンタム保有上位N・上昇率の計測期間(営業日)。
     crypto_mom_top: int = field(default_factory=lambda: int(_get("CRYPTO_MOM_TOP", "5")))
     crypto_mom_lookback: int = field(default_factory=lambda: int(_get("CRYPTO_MOM_LOOKBACK", "90")))
-    # 地合いフィルター: true=クリプト全体(等ウェイト指数)が200日線割れの弱気相場では全て現金へ退避。
+    # 地合いフィルター: true=クリプト全体(等ウェイト指数)が200日線割れの弱気相場では「モメンタム部」を全て現金へ退避。
     crypto_regime_filter: bool = field(default_factory=lambda: _get("CRYPTO_REGIME_FILTER", "true").lower() in ("1", "true", "yes"))
+    # BTC土台: 総資産のこの割合を"常に"BTCで保有(買い持ち・地合いに関係なく)。残りで上のモメンタムを回す。
+    # 0=無効(純モメンタム)。例 0.60=総資産60%をBTC常時保有＋残り40%でモメンタム上位N(BTCは除外)。
+    # バックテスト(2023-26)でアルト・モメンタム単体(-13%)よりBTC厚めが大幅に優位(50%:+42%/70%:+63%)。
+    crypto_btc_core_pct: float = field(default_factory=lambda: float(_get("CRYPTO_BTC_CORE_PCT", "0.60")))
 
     # ===== 日次リスクレビュー（資産¥・NAV・DD・地合いを1日1回Discordへ＝私的ログ＋アラート） =====
     daily_review_enabled: bool = field(default_factory=lambda: _get("DAILY_REVIEW_ENABLED", "true").lower() in ("1", "true", "yes"))

@@ -85,6 +85,46 @@ def test_plan_rebalance_new_only():
     assert plan["buy"] == [("A/JPY", 100.0), ("B/JPY", 100.0)]
 
 
+# ---- BTC土台＋モメンタム ----
+
+def test_sleeve_excludes_btc():
+    # BTCが最強でもsleeve候補には入らない（土台なので別枠）
+    strong_btc = [100] * 5 + [110, 130, 160, 200, 300]
+    up = [100] * 5 + [101, 103, 106, 110, 120]
+    data = {"BTC/JPY": strong_btc, "ETH/JPY": up}
+    assert ml.sleeve_candidates(data, top_n=5, look=3, sma_len=5) == ["ETH/JPY"]
+
+
+def test_build_targets_jpy_core_plus_sleeve():
+    # 総資産100万・core60%・上位5・地合いオン
+    t = ml.build_targets_jpy(1_000_000, True, ["A", "B", "C", "D", "E"], core_pct=0.60, top_n=5)
+    assert t["BTC/JPY"] == 600_000                      # 土台60%
+    assert round(t["A"]) == 72_000                      # (0.90/5)*40万 = 7.2万/銘柄
+    assert round(sum(t.values())) == 960_000            # 96%投資・4%現金
+
+
+def test_build_targets_jpy_regime_down_keeps_btc():
+    # 地合いオフ→sleeveは現金、BTC土台は維持
+    t = ml.build_targets_jpy(1_000_000, False, ["A", "B"], core_pct=0.60, top_n=5)
+    assert t == {"BTC/JPY": 600_000}
+
+
+def test_build_targets_jpy_core_zero_is_pure_momentum():
+    t = ml.build_targets_jpy(1_000_000, True, ["A", "B", "C", "D", "E"], core_pct=0.0, top_n=5)
+    assert "BTC/JPY" not in t
+    assert round(t["A"]) == 180_000                     # (0.90/5)*100万
+
+
+def test_plan_rebalance_targets():
+    current = {"BTC/JPY": 500_000, "A/JPY": 100_000, "X/JPY": 50_000}
+    targets = {"BTC/JPY": 600_000, "A/JPY": 72_000, "B/JPY": 72_000}
+    plan = ml.plan_rebalance_targets(current, targets, min_order=1_000)
+    assert plan["sell_all"] == ["X/JPY"]               # 目標外は全売り
+    assert ("A/JPY", 28_000) in plan["trim"]           # 10万→7.2万 削り
+    assert ("BTC/JPY", 100_000) in plan["buy"]         # 50万→60万 買い増し
+    assert ("B/JPY", 72_000) in plan["buy"]            # 新規
+
+
 # ---- 地合いフィルター ----
 
 def test_market_index_equal_weight():
@@ -122,6 +162,7 @@ def test_rebalance_regime_down_sells_all_to_cash(monkeypatch):
     data = {"BTC/JPY": dn, "ETH/JPY": dn}
 
     monkeypatch.setattr(settings, "crypto_regime_filter", True)
+    monkeypatch.setattr(settings, "crypto_btc_core_pct", 0.0)  # 純モメンタム（BTC土台なし）での退避テスト
     monkeypatch.setattr(settings, "pz_sma_len", 20)
     monkeypatch.setattr(settings, "crypto_mom_top", 5)
     monkeypatch.setattr(settings, "crypto_mom_lookback", 3)
@@ -157,7 +198,7 @@ def test_rebalance_regime_down_sells_all_to_cash(monkeypatch):
     summary = asyncio.run(ml.rebalance(data))
 
     assert summary["regime_down"] is True          # 弱気判定
-    assert summary["target"] == []                 # 目標＝現金（保有ゼロ）
+    assert summary["sleeve"] == []                 # モメンタム部＝現金（保有ゼロ）
     assert set(summary["sell_all"]) == {"BTC/JPY", "ETH/JPY"}
     assert set(sold) == {"BTC/JPY", "ETH/JPY"}     # 全保有を実際に売却
     assert bought == []                            # 買いは一切なし

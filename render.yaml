@@ -79,7 +79,11 @@ services:
       - key: CRYPTO_MOM_LOOKBACK
         value: "90" # 上昇率の測定期間(営業日)
       - key: CRYPTO_REGIME_FILTER
-        value: "true" # 地合いフィルター: クリプト全体が200日線割れの弱気相場は全て現金へ退避
+        value: "true" # 地合いフィルター: 弱気相場では「モメンタム部」を現金へ退避（BTC土台は維持）
+      - key: CRYPTO_BTC_CORE_PCT
+        value: "0.60" # BTC土台: 総資産の60%を常にBTC保有(買い持ち)＋残り40%でモメンタム。2026-10-13導入
+                      # (バックテストでアルト単体-13%よりBTC厚め+42〜63%が優位)。0で純モメンタムへ戻せる
+                      # ※コード既定も0.60＝デプロイで有効。env変更不要だが恒久はここ/Environmentで
       - key: DAILY_REVIEW_ENABLED
         value: "true" # 日次リスクレビュー(資産¥・NAV・DD・地合い)を1日1回Discordへ＝私的ログ＋アラート
       - key: DAILY_REVIEW_HOUR

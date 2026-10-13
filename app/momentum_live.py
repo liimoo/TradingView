@@ -125,6 +125,55 @@ def plan_rebalance(current_values: dict, target: list, target_quote: float,
     return {"sell_all": sell_all, "trim": trim, "buy": buy}
 
 
+# ---- BTC土台＋モメンタム（銘柄別の目標額で配分） ----
+
+BTC = "BTC/JPY"
+MAX_INVEST = 0.90  # 総投資上限（残りは現金。成行の最後の枠にも余裕を持たせるため）
+
+
+def sleeve_candidates(data: dict, top_n: int, look: int, sma_len: int) -> list:
+    """モメンタム部（sleeve）の上位N銘柄。BTCは"土台"なので候補から除外する。"""
+    d = {k: v for k, v in data.items() if k != BTC}
+    return momentum_targets(d, top_n, look, sma_len)
+
+
+def build_targets_jpy(assets: float, regime_up: bool, sleeve_syms: list,
+                      core_pct: float, top_n: int) -> dict:
+    """各銘柄の目標額(円)を返す（純粋関数）。
+
+    ・BTC土台: core_pct×総資産を"常に"BTCで保有（地合いに関係なく・買い持ち）。
+    ・モメンタム部: 残り(1-core_pct)の予算を上位 sleeve_syms に等ウェイト。
+       1銘柄 = (MAX_INVEST/top_n)×sleeve予算（top_n枠で予算の約90%投資・現金を少し温存）。
+       地合いオフ(regime_up=False)なら sleeve は空＝現金（BTC土台は維持し続ける）。
+    """
+    targets: dict = {}
+    if assets <= 0:
+        return targets
+    if core_pct > 0:
+        targets[BTC] = core_pct * assets
+    sleeve_budget = max(0.0, (1.0 - core_pct)) * assets
+    if regime_up and sleeve_syms and sleeve_budget > 0:
+        per = (MAX_INVEST / max(1, top_n)) * sleeve_budget
+        for s in sleeve_syms:
+            if s == BTC:
+                continue  # 念のため二重計上を防ぐ
+            targets[s] = targets.get(s, 0.0) + per
+    return targets
+
+
+def plan_rebalance_targets(current: dict, targets: dict, min_order: float) -> dict:
+    """各建玉の時価(current)と銘柄別の目標額(targets)から増減プランを出す（純粋関数）。"""
+    sell_all = [s for s in current if s not in targets]
+    trim, buy = [], []
+    for s, tgt in targets.items():
+        diff = tgt - current.get(s, 0.0)
+        if diff > min_order:
+            buy.append((s, diff))
+        elif -diff > min_order:
+            trim.append((s, -diff))
+    return {"sell_all": sell_all, "trim": trim, "buy": buy}
+
+
 # ---- 本番実行（発注は pz._execute を流用） ----
 
 async def _gather() -> dict:
@@ -231,32 +280,25 @@ async def rebalance(data: dict | None = None) -> dict:
     if not data:
         await notify("⚠️ モメンタム: データ取得に失敗（リバランス見送り）")
         return {"skipped": "no_data"}
-    target = momentum_targets(data, settings.crypto_mom_top,
-                              settings.crypto_mom_lookback, settings.pz_sma_len)
+    # モメンタム部（sleeve）の上位N（BTCは土台なので除外）。地合いオフなら sleeve は現金。
+    regime_up = (not settings.crypto_regime_filter) or regime_is_up(data, settings.pz_sma_len)
+    regime_down = not regime_up
+    sleeve = sleeve_candidates(data, settings.crypto_mom_top,
+                               settings.crypto_mom_lookback, settings.pz_sma_len)
 
-    # 地合いフィルター: クリプト全体が200日線割れの弱気相場なら、全て現金へ退避（target空）。
-    regime_down = False
-    if settings.crypto_regime_filter and not regime_is_up(data, settings.pz_sma_len):
-        regime_down = True
-        target = []
-
-    # 1銘柄あたりの目標額 = 総資産 × order_size_pct。
-    # ただし総投資は MAX_INVEST(=90%) までに抑え、約10%は現金で残す。
-    # 95%(現金5%)だと、最後の空き枠を"成行"で埋める時に手数料+滑りの余裕が足りず
-    # bitbank 60002（成行買いが資金上限を超過）で失敗した（2026-09-30 SOL枠で発生）。
-    # 現金を10%残すことで最後の成行買いにも確実に余裕を持たせる。
-    MAX_INVEST = 0.90
     assets = free = 0.0
     if broker.has_exchange:
         try:
             assets, free = await asyncio.to_thread(broker.portfolio)
         except Exception:  # noqa: BLE001
             pass
-    per = min(settings.order_size_pct, MAX_INVEST / max(1, settings.crypto_mom_top))
-    target_quote = sized_quote(per, assets or 0.0, assets or 0.0, settings.order_quote_amount)
+
+    core_pct = settings.crypto_btc_core_pct
+    # 銘柄別の目標額（BTC土台=core_pct×総資産／sleeve=残りを上位Nに等ウェイト）
+    targets = build_targets_jpy(assets or 0.0, regime_up, sleeve, core_pct, settings.crypto_mom_top)
 
     current = _position_values()
-    plan = plan_rebalance(current, target, target_quote, settings.min_order_jpy)
+    plan = plan_rebalance_targets(current, targets, settings.min_order_jpy)
     daily_blocked = bool(risk_manager.daily_block_reason())
 
     # 売り（退出→削り）を先に行い現金を確保、次に買い（増し玉→新規）
@@ -271,15 +313,20 @@ async def rebalance(data: dict | None = None) -> dict:
             await _buy(sym, q)
 
     held_after = [s for s, p in risk_manager._positions.items() if p.side == "long"]
-    summary = {"target": target, "target_quote": round(target_quote), "regime_down": regime_down,
+    sleeve_held = [s for s in sleeve if s != BTC]
+    per_sleeve = (MAX_INVEST / max(1, settings.crypto_mom_top)) * (1.0 - core_pct) * (assets or 0.0)
+    summary = {"core_pct": core_pct, "btc_target": round(targets.get(BTC, 0.0)),
+               "sleeve": sleeve_held if regime_up else [], "regime_down": regime_down,
                "sell_all": plan["sell_all"], "trim": [s for s, _ in plan["trim"]],
                "buy": [s for s, _ in plan["buy"]], "held_after": held_after}
-    tgt_txt = "、".join(target) if target else "なし（現金）"
-    lines = [f"🔀 モメンタム月次リバランス（{datetime.now(JST):%Y-%m-%d}）"]
+    lines = [f"🔀 リバランス（{datetime.now(JST):%Y-%m-%d}）"]
+    if core_pct > 0:
+        lines.append(f"🟧 BTC土台 {core_pct*100:.0f}%（目標 ≈ ¥{targets.get(BTC, 0.0):,.0f}・常時保有）")
     if regime_down:
-        lines.append("🛡️ 地合い弱気（クリプト全体が200日線↓）→ 全て現金へ退避")
-    lines += [f"🎯 今月の上位{settings.crypto_mom_top}: {tgt_txt}",
-              f"（1銘柄の目標 ≈ ¥{target_quote:,.0f}／総資産の{per*100:.0f}%・現金約{(1 - per * settings.crypto_mom_top) * 100:.0f}%は温存）"]
+        lines.append("🛡️ 地合い弱気→モメンタム部は現金（BTC土台は維持）")
+    else:
+        stxt = "、".join(sleeve_held) if sleeve_held else "なし（現金）"
+        lines.append(f"🎯 モメンタム上位{settings.crypto_mom_top}: {stxt}（1銘柄 ≈ ¥{per_sleeve:,.0f}）")
     if plan["sell_all"]:
         lines.append(f"➖ 退出: {'、'.join(plan['sell_all'])}")
     if plan["trim"]:
@@ -289,7 +336,7 @@ async def rebalance(data: dict | None = None) -> dict:
     if not any((plan["sell_all"], plan["trim"], plan["buy"])):
         lines.append("＝ 調整なし（すでに目標どおり）")
     await notify("\n".join(lines))
-    logger.info("モメンタム リバランス: %s", summary)
+    logger.info("リバランス: %s", summary)
     return summary
 
 
@@ -336,12 +383,11 @@ async def momentum_loop() -> None:
                 await asyncio.sleep(60)
                 continue
             regime_up_now = (not settings.crypto_regime_filter) or regime_is_up(data, settings.pz_sma_len)
-            # 目標集合（地合いオフなら現金＝空）と、現在の保有集合（端数は除外）を比較
-            if regime_up_now:
-                target = set(momentum_targets(data, settings.crypto_mom_top,
-                                               settings.crypto_mom_lookback, settings.pz_sma_len))
-            else:
-                target = set()
+            # 目標集合＝BTC土台(常時) ∪ モメンタム上位(地合いオンのみ)。現在の保有(端数除外)と比較。
+            sleeve = (set(sleeve_candidates(data, settings.crypto_mom_top,
+                                            settings.crypto_mom_lookback, settings.pz_sma_len))
+                      if regime_up_now else set())
+            target = sleeve | ({BTC} if settings.crypto_btc_core_pct > 0 else set())
             held = {s for s, v in _position_values().items() if v >= settings.min_order_jpy}
             regime_changed = _last_regime_up is not None and regime_up_now != _last_regime_up
             month_changed = ym != _last_rebalance_month  # 月1の全体再調整（ドリフト是正）の保険
