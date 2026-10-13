@@ -309,8 +309,19 @@ async def rebalance(data: dict | None = None) -> dict:
     if daily_blocked:
         await notify("⏸️ モメンタム: 本日の損失上限に達しているため買いは見送り（売り/削りのみ実施）")
     else:
+        # 売り/削り後の実際の現金を取得し、各買いをその範囲内に収める（60002=資金不足を防ぐ）。
+        # 大きな買い（BTC土台など）で現金を使い切っても、残りの枠は次の評価で順次埋まる。
+        avail = free
+        if broker.has_exchange:
+            try:
+                _, avail = await asyncio.to_thread(broker.portfolio)
+            except Exception:  # noqa: BLE001
+                pass
         for sym, q in plan["buy"]:
-            await _buy(sym, q)
+            q2 = min(q, (avail or 0.0) * 0.99)  # 手数料/滑りの余裕を少し残す
+            if q2 >= settings.min_order_jpy:
+                await _buy(sym, q2)
+                avail = max(0.0, (avail or 0.0) - q2)
 
     held_after = [s for s, p in risk_manager._positions.items() if p.side == "long"]
     sleeve_held = [s for s in sleeve if s != BTC]
