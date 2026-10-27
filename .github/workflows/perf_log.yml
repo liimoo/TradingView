@@ -5,8 +5,10 @@ name: 日次パフォーマンス記録（PDCA）
 # 月次PDCAレビューの土台にする。※秘密情報は一切使わない。実売買もしない（読むだけ）。
 
 on:
-  schedule:
-    - cron: "30 0 * * *"   # 00:30 UTC = 09:30 JST（朝の評価後の状態を記録）
+  # 2026-10-27 運用終了に伴い自動実行(cron)を停止。手動実行のみ残す（必要時だけ Actions 画面から）。
+  # 再開するには下の schedule 行のコメントを外す。
+  # schedule:
+  #   - cron: "30 0 * * *"   # 00:30 UTC = 09:30 JST（朝の評価後の状態を記録）
   workflow_dispatch:
 
 permissions:
